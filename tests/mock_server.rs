@@ -71,3 +71,48 @@ fn exhausted_queue_returns_500() {
     assert!(raw.starts_with("HTTP/1.1 500"), "got {raw}");
     assert_eq!(server.request_count(), 2);
 }
+
+#[test]
+fn read_timeout_prevents_hanging_on_incomplete_requests() {
+    use std::thread as std_thread;
+    use std::time::Instant;
+
+    let server = MockServer::start(vec![MockResponse::json(200, "{}")]);
+
+    // Spawn a thread that connects and sends incomplete data, then stalls.
+    let base_url = server.base_url().to_string();
+    let start = Instant::now();
+    let handle = std_thread::spawn(move || {
+        let addr = base_url.trim_start_matches("http://");
+        if let Ok(mut stream) = TcpStream::connect(addr) {
+            // Send a request claiming Content-Length: 100 but only send 10 bytes, then stall.
+            let incomplete =
+                b"POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n0123456789";
+            let _ = stream.write_all(incomplete);
+            // Don't close; just hang, simulating a broken client.
+            std_thread::sleep(std::time::Duration::from_secs(10));
+        }
+    });
+
+    // Join with a bound well above 5s but far below CI timeout (15s).
+    let timeout = std::time::Duration::from_secs(10);
+    loop {
+        if handle.is_finished() {
+            break;
+        }
+        if start.elapsed() > timeout {
+            panic!(
+                "test thread did not finish within {timeout:?}; server likely hangs on incomplete reads"
+            );
+        }
+        std_thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Server should have dropped the incomplete connection without recording it,
+    // since serve_one hit the read timeout.
+    assert_eq!(
+        server.request_count(),
+        0,
+        "incomplete request should not be recorded"
+    );
+}

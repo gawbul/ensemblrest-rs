@@ -10,6 +10,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 /// A scripted response for the mock server to return.
 #[derive(Debug, Clone)]
@@ -177,6 +178,12 @@ fn serve_one(
     mut stream: TcpStream,
     scripted: Option<MockResponse>,
 ) -> std::io::Result<RecordedRequest> {
+    // Set read and write timeouts to prevent hanging on stalled clients. This converts
+    // a silent hang into a fast failure, and ensures MockServer::drop's join() can
+    // complete even if serve_one is mid-request.
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+
     let mut reader = BufReader::new(stream.try_clone()?);
 
     let mut request_line = String::new();
