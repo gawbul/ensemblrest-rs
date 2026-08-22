@@ -123,6 +123,7 @@ struct Inner {
     headers:      Vec<(String, String)>,
     max_attempts: u32,
     wall_time:    Duration,
+    max_response_bytes: u64,
     limiter:      RateLimiter,
 }
 ```
@@ -137,6 +138,7 @@ let client = Client::builder()
     .max_attempts(5)
     .user_agent("custom-agent/1.0")
     .header("X-Custom", "value")
+    .max_response_bytes(100 * 1024 * 1024)
     .agent(custom_ureq_agent)
     .build()?;
 ```
@@ -159,10 +161,19 @@ connection pool — the same semantics as passing a shared `*Client` around goro
 | `DEFAULT_MAX_ATTEMPTS` | 5 |
 | `DEFAULT_REQS_PER_SEC` | 15 |
 | `DEFAULT_WALL_TIME` | 1 s |
+| `DEFAULT_MAX_RESPONSE_BYTES` | 100 MiB |
 | `DEFAULT_USER_AGENT` | `ensemblrest/{VERSION} (Rust 1.98; +https://github.com/gawbul/ensemblrest-rs)` |
 
 Builder validation rejects non-positive timeout, `reqs_per_sec`, window, and
 `max_attempts < 1`, returning `Error::InvalidConfig`.
+
+**Addition beyond the Go port — `max_response_bytes`.** `ureq` caps response bodies at
+10 MiB by default and returns an error above it. Several Ensembl endpoints exceed that
+routinely — large `overlap` result sets, multi-region `sequence` POSTs, and
+`alignment/region` blocks. The default is therefore raised to 100 MiB via
+`body_mut().with_config().limit(..)` on every read, and exposed as a builder option so
+callers can raise or lower it. Go has no equivalent because `net/http` imposes no such
+cap; without this the port would fail on exactly the large queries users care about.
 
 **Divergence — no cancellation context.** Go threads `ctx context.Context` through
 every method, using it to abort mid-sleep in the limiter and in retry backoff. Blocking
