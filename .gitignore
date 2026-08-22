@@ -1,1 +1,5 @@
 .superpowers/
+/target
+Cargo.lock
+*.profraw
+/coverage
