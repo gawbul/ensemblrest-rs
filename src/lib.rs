@@ -50,6 +50,8 @@ pub mod error;
 
 pub use error::{ApiError, ApiErrorKind, Error, Result};
 
+pub(crate) mod encoding;
+
 #[cfg(test)]
 mod tests {
     use super::*;
