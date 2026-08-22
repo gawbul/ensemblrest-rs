@@ -46,6 +46,10 @@ pub mod ratelimit;
 
 pub use ratelimit::RateLimitInfo;
 
+pub mod error;
+
+pub use error::{ApiError, ApiErrorKind, Error, Result};
+
 #[cfg(test)]
 mod tests {
     use super::*;
