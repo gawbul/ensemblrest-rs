@@ -28,7 +28,6 @@ pub struct RateLimitInfo {
 }
 
 #[derive(Debug, Default)]
-#[allow(dead_code)]
 struct State {
     stamps: VecDeque<Instant>,
     info: RateLimitInfo,
@@ -36,14 +35,12 @@ struct State {
 
 /// A thread-safe sliding-window rate limiter.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct RateLimiter {
     state: Mutex<State>,
     reqs: usize,
     window: Duration,
 }
 
-#[allow(dead_code)]
 impl RateLimiter {
     /// Creates a limiter admitting `reqs` requests per `window`.
     pub(crate) fn new(reqs: u32, window: Duration) -> Self {
@@ -55,6 +52,9 @@ impl RateLimiter {
     }
 
     /// Blocks until another request is permitted under the sliding window.
+    // Consumed by request execution starting in Task 9; until then nothing
+    // outside `#[cfg(test)]` calls it.
+    #[allow(dead_code)]
     pub(crate) fn wait(&self) {
         loop {
             let sleep_for = {
@@ -92,6 +92,9 @@ impl RateLimiter {
     ///
     /// Headers that are absent or unparseable leave the previous value untouched,
     /// so telemetry persists across responses that omit it.
+    // Consumed by request execution starting in Task 9; until then nothing
+    // outside `#[cfg(test)]` calls it.
+    #[allow(dead_code)]
     pub(crate) fn update_from_headers(&self, headers: &HeaderMap) -> RateLimitInfo {
         let get_i64 =
             |name: &str| -> Option<i64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };

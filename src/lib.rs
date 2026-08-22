@@ -66,6 +66,10 @@ pub mod options;
 
 pub use options::{RequestOption, content_type, header, query};
 
+pub mod client;
+
+pub use client::{Client, ClientBuilder};
+
 #[cfg(test)]
 mod tests {
     use super::*;
