@@ -62,6 +62,10 @@ pub mod response;
 
 pub use response::Response;
 
+pub mod options;
+
+pub use options::{RequestOption, content_type, header, query};
+
 #[cfg(test)]
 mod tests {
     use super::*;
