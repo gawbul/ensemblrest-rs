@@ -3,6 +3,12 @@
 //! This crate is a port of [`goensemblrest`](https://github.com/gawbul/goensemblrest),
 //! which is itself a port of [`pyEnsemblRest`](https://github.com/gawbul/pyEnsemblRest).
 
+// `Error` is ~136 bytes, dominated by ApiError's String, Vec<u8> and RateLimitInfo.
+// Every fallible function in this crate accompanies a network round trip, so the
+// cost of moving it is immaterial and boxing it would change a public API shape
+// that callers pattern-match on.
+#![allow(clippy::result_large_err)]
+
 use std::time::Duration;
 
 /// The current version of this crate.
@@ -51,6 +57,10 @@ pub mod error;
 pub use error::{ApiError, ApiErrorKind, Error, Result};
 
 pub(crate) mod encoding;
+
+pub mod response;
+
+pub use response::Response;
 
 #[cfg(test)]
 mod tests {

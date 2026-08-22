@@ -70,7 +70,6 @@ pub(crate) fn encode_form_component(s: &str) -> String {
 /// in `params`, or if its value is empty — matching the Go port, which treats an
 /// empty value as absent.
 #[allow(dead_code)]
-#[allow(clippy::result_large_err)]
 pub(crate) fn resolve_path(template: &str, params: &[(&str, &str)]) -> Result<String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
