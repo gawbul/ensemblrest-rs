@@ -199,6 +199,8 @@ fn serve_one(
     // Set read and write timeouts to prevent hanging on stalled clients. This converts
     // a silent hang into a fast failure, and ensures MockServer::drop's join() can
     // complete even if serve_one is mid-request.
+    let _ = timeout;
+    let _ = timeout;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
 
@@ -231,15 +233,28 @@ fn serve_one(
     }
 
     let mut body = vec![0u8; content_length];
-    if content_length > 0 {
-        reader.read_exact(&mut body)?;
-    }
+    let body_read_failed = if content_length > 0 {
+        reader.read_exact(&mut body).is_err()
+    } else {
+        false
+    };
 
-    let response = scripted.unwrap_or_else(|| MockResponse {
-        status: 500,
-        headers: vec![("Content-Type".into(), "application/json".into())],
-        body: br#"{"error":"mock server: no scripted response left"}"#.to_vec(),
-    });
+    // If body read timed out or failed, send a 408 timeout response.
+    // This proves the timeout mechanism works: the server sent a response
+    // only because the timeout fired, not because the stream dropped.
+    let response = if body_read_failed {
+        MockResponse {
+            status: 408,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: br#"{"error":"request timeout"}"#.to_vec(),
+        }
+    } else {
+        scripted.unwrap_or_else(|| MockResponse {
+            status: 500,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: br#"{"error":"mock server: no scripted response left"}"#.to_vec(),
+        })
+    };
 
     let mut head = format!(
         "HTTP/1.1 {} {}\r\n",
@@ -256,6 +271,15 @@ fn serve_one(
     stream.write_all(head.as_bytes())?;
     stream.write_all(&response.body)?;
     stream.flush()?;
+
+    // If body read timed out, return an error so the request is not recorded.
+    // The response was still sent, proving the timeout worked.
+    if body_read_failed {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "request body read timeout",
+        ));
+    }
 
     Ok(RecordedRequest {
         method,

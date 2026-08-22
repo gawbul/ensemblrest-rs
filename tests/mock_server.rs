@@ -3,8 +3,9 @@
 mod common;
 
 use common::mock::{MockResponse, MockServer};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 
 /// Sends a raw HTTP/1.1 request and returns the status line plus body.
 fn raw_request(base_url: &str, request: &str) -> String {
@@ -75,45 +76,80 @@ fn exhausted_queue_returns_500() {
 #[test]
 fn read_timeout_prevents_hanging_on_incomplete_requests() {
     use std::thread as std_thread;
-    use std::time::{Duration, Instant};
 
     let server = MockServer::start_with_timeout(
         vec![MockResponse::json(200, "{}")],
-        Duration::from_millis(200),
+        Duration::from_millis(300),
     );
 
-    // Spawn a thread that connects and sends incomplete data, then stalls.
     let base_url = server.base_url().to_string();
-    let start = Instant::now();
+
+    // Spawn a thread that connects, sends incomplete data, and tries to read the response.
+    // If server has timeout: gets 408 response quickly (~300ms)
+    // If server has no timeout: read times out after we set a read timeout on our end
     let handle = std_thread::spawn(move || {
         let addr = base_url.trim_start_matches("http://");
         if let Ok(mut stream) = TcpStream::connect(addr) {
-            // Send a request claiming Content-Length: 100 but only send 10 bytes, then stall.
+            // Send a request claiming Content-Length: 100 but only send 10 bytes.
             let incomplete =
                 b"POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n0123456789";
             let _ = stream.write_all(incomplete);
-            // Don't close; just hang, simulating a broken client.
-            // Sleep for 1s, well above the 200ms timeout but much faster than the old 5s.
-            std_thread::sleep(Duration::from_millis(1000));
+            let _ = stream.flush();
+
+            // Try to read the response with a 1-second timeout.
+            // If server timed out and sent 408: we get the response immediately (~300ms)
+            // If server has no timeout and is hung: read times out after 1s
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(1000)));
+            let mut buf = [0u8; 1024];
+            match stream.read(&mut buf) {
+                Ok(n) => {
+                    // Got response. Check if it contains "408" (timeout response)
+                    let response = std::str::from_utf8(&buf[..n]).unwrap_or("");
+                    if response.contains("408") {
+                        "got_408".to_string()
+                    } else {
+                        "got_other".to_string()
+                    }
+                }
+                Err(_) => {
+                    // Read timed out or failed. If no server timeout, our 1s read timeout fired.
+                    "read_timeout".to_string()
+                }
+            }
+        } else {
+            panic!("failed to connect");
         }
     });
 
-    // Join with a bound above the spawned thread sleep (1.5s is safe, well above 200ms timeout + 1s sleep).
+    // Join with a bound above the read timeout (1.5s is safe, server response is ~300ms).
     let timeout = Duration::from_millis(1500);
+    let max_wait = std::time::Instant::now() + timeout;
     loop {
         if handle.is_finished() {
             break;
         }
-        if start.elapsed() > timeout {
-            panic!(
-                "test thread did not finish within {timeout:?}; server likely hangs on incomplete reads"
-            );
+        if std::time::Instant::now() > max_wait {
+            panic!("client thread did not finish within {timeout:?}; server likely hangs forever");
         }
         std_thread::sleep(Duration::from_millis(50));
     }
 
-    // Server should have dropped the incomplete connection without recording it,
-    // since serve_one hit the read timeout.
+    // Thread finished. Check result.
+    let result = handle.join().expect("client thread panicked");
+    match result.as_str() {
+        "got_408" => {
+            // Success! Server sent 408 timeout response, proving timeout worked.
+        }
+        "got_other" => {
+            panic!("server sent response other than 408, expected timeout response");
+        }
+        "read_timeout" => {
+            panic!("our read timed out; server likely had no timeout and hung forever");
+        }
+        _ => panic!("unexpected result: {}", result),
+    }
+
+    // Request should not be recorded because body read timed out on server.
     assert_eq!(
         server.request_count(),
         0,
