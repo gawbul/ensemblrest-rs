@@ -90,6 +90,7 @@ pub struct MockServer {
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
+    timeout: Duration,
 }
 
 impl MockServer {
@@ -98,7 +99,22 @@ impl MockServer {
     /// Once the queue is exhausted every further request gets a 500. Scripting
     /// one response per expected attempt is how the retry tests assert attempt
     /// counts.
+    ///
+    /// Uses a default 5-second I/O timeout per request. To use a different timeout
+    /// (e.g., for tests with stalled clients), use `start_with_timeout`.
     pub fn start(responses: Vec<MockResponse>) -> Self {
+        Self::start_with_timeout(responses, Duration::from_secs(5))
+    }
+
+    /// Starts a server with a custom I/O timeout per request.
+    ///
+    /// The timeout applies to both read and write operations on accepted streams.
+    /// When a timeout occurs, the connection is dropped without recording the request.
+    ///
+    /// The default 5-second timeout is suitable for production use and prevents hangs.
+    /// Tests with intentionally stalled clients should use a short timeout (e.g., 200ms)
+    /// to complete quickly.
+    pub fn start_with_timeout(responses: Vec<MockResponse>, timeout: Duration) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
         let addr = listener.local_addr().expect("local addr");
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -115,7 +131,7 @@ impl MockServer {
                 }
                 let Ok(stream) = stream else { break };
                 let scripted = queue.pop_front();
-                if let Ok(req) = serve_one(stream, scripted) {
+                if let Ok(req) = serve_one(stream, scripted, timeout) {
                     thread_requests.lock().expect("requests lock").push(req);
                 }
             }
@@ -127,6 +143,7 @@ impl MockServer {
             requests,
             stop,
             handle: Some(handle),
+            timeout,
         }
     }
 
@@ -177,12 +194,13 @@ impl Drop for MockServer {
 fn serve_one(
     mut stream: TcpStream,
     scripted: Option<MockResponse>,
+    timeout: Duration,
 ) -> std::io::Result<RecordedRequest> {
     // Set read and write timeouts to prevent hanging on stalled clients. This converts
     // a silent hang into a fast failure, and ensures MockServer::drop's join() can
     // complete even if serve_one is mid-request.
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
 
     let mut reader = BufReader::new(stream.try_clone()?);
 

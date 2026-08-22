@@ -75,9 +75,12 @@ fn exhausted_queue_returns_500() {
 #[test]
 fn read_timeout_prevents_hanging_on_incomplete_requests() {
     use std::thread as std_thread;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
-    let server = MockServer::start(vec![MockResponse::json(200, "{}")]);
+    let server = MockServer::start_with_timeout(
+        vec![MockResponse::json(200, "{}")],
+        Duration::from_millis(200),
+    );
 
     // Spawn a thread that connects and sends incomplete data, then stalls.
     let base_url = server.base_url().to_string();
@@ -90,12 +93,13 @@ fn read_timeout_prevents_hanging_on_incomplete_requests() {
                 b"POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n0123456789";
             let _ = stream.write_all(incomplete);
             // Don't close; just hang, simulating a broken client.
-            std_thread::sleep(std::time::Duration::from_secs(10));
+            // Sleep for 1s, well above the 200ms timeout but much faster than the old 5s.
+            std_thread::sleep(Duration::from_millis(1000));
         }
     });
 
-    // Join with a bound well above 5s but far below CI timeout (15s).
-    let timeout = std::time::Duration::from_secs(10);
+    // Join with a bound above the spawned thread sleep (1.5s is safe, well above 200ms timeout + 1s sleep).
+    let timeout = Duration::from_millis(1500);
     loop {
         if handle.is_finished() {
             break;
@@ -105,7 +109,7 @@ fn read_timeout_prevents_hanging_on_incomplete_requests() {
                 "test thread did not finish within {timeout:?}; server likely hangs on incomplete reads"
             );
         }
-        std_thread::sleep(std::time::Duration::from_millis(100));
+        std_thread::sleep(Duration::from_millis(50));
     }
 
     // Server should have dropped the incomplete connection without recording it,
