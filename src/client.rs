@@ -164,7 +164,9 @@ impl ClientBuilder {
     ///
     /// The agent must be built with `http_status_as_error(false)`, otherwise
     /// non-2xx responses surface as transport errors and the retry
-    /// classification in this crate cannot see their status codes.
+    /// classification in this crate cannot see their status codes. This is
+    /// enforced: [`build`](ClientBuilder::build) rejects a supplied agent
+    /// that doesn't have the flag set with [`Error::InvalidConfig`].
     pub fn agent(mut self, agent: ureq::Agent) -> Self {
         self.agent = Some(agent);
         self
@@ -192,6 +194,16 @@ impl ClientBuilder {
         if self.max_attempts == 0 {
             return Err(Error::InvalidConfig(
                 "max_attempts must be at least 1".into(),
+            ));
+        }
+        if let Some(supplied) = &self.agent
+            && supplied.config().http_status_as_error()
+        {
+            return Err(Error::InvalidConfig(
+                "supplied agent must be built with http_status_as_error(false); \
+                 without it ureq turns non-2xx responses into transport errors and \
+                 this client cannot classify or retry them"
+                    .into(),
             ));
         }
 
@@ -309,5 +321,26 @@ mod tests {
     fn client_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Client>();
+    }
+
+    #[test]
+    fn builder_rejects_a_supplied_agent_missing_http_status_as_error_false() {
+        // ureq's default is `http_status_as_error(true)`; a caller who forgets
+        // to turn it off would otherwise get non-2xx responses silently
+        // converted to transport errors, hiding the status code and body
+        // this crate's retry logic classifies on.
+        let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
+        let err = Client::builder().agent(agent).build().unwrap_err();
+        assert!(matches!(err, Error::InvalidConfig(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn builder_accepts_a_supplied_agent_with_http_status_as_error_false() {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let c = Client::builder().agent(agent).build().unwrap();
+        assert_eq!(c.base_url(), crate::DEFAULT_BASE_URL);
     }
 }
