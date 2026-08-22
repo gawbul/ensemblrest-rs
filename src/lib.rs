@@ -42,6 +42,10 @@ pub fn default_user_agent() -> String {
 /// produced by this crate.
 pub use serde_json;
 
+pub mod ratelimit;
+
+pub use ratelimit::RateLimitInfo;
+
 #[cfg(test)]
 mod tests {
     use super::*;
