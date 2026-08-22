@@ -31,7 +31,9 @@ pub struct Response {
 }
 
 impl Response {
-    #[allow(dead_code)]
+    // Consumed by request execution starting in Task 9; until then nothing
+    // outside `#[cfg(test)]` calls it.
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn new(
         status: u16,
         content_type: Option<String>,

@@ -12,18 +12,18 @@ use crate::{
 
 #[derive(Debug)]
 pub(crate) struct Inner {
-    // Consumed by request execution starting in Task 8; until then nothing
+    // Consumed by request execution starting in Task 9; until then nothing
     // outside `#[cfg(test)]` reads these fields.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) agent: ureq::Agent,
     pub(crate) base_url: String,
     pub(crate) user_agent: String,
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) max_attempts: u32,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) wall_time: Duration,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) max_response_bytes: u64,
     pub(crate) limiter: RateLimiter,
 }

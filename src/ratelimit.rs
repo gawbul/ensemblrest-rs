@@ -54,7 +54,7 @@ impl RateLimiter {
     /// Blocks until another request is permitted under the sliding window.
     // Consumed by request execution starting in Task 9; until then nothing
     // outside `#[cfg(test)]` calls it.
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn wait(&self) {
         loop {
             let sleep_for = {
@@ -94,7 +94,7 @@ impl RateLimiter {
     /// so telemetry persists across responses that omit it.
     // Consumed by request execution starting in Task 9; until then nothing
     // outside `#[cfg(test)]` calls it.
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn update_from_headers(&self, headers: &HeaderMap) -> RateLimitInfo {
         let get_i64 =
             |name: &str| -> Option<i64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
