@@ -446,7 +446,9 @@ mod tests {
     }
 
     #[test]
-    fn wire_names_that_differ_from_field_names_are_renamed() {
+    fn snake_case_wire_names_populate_without_any_rename() {
+        // These already equal their wire names, so they exercise the plain
+        // (non-`#[serde(rename)]`) path, not a rename.
         let json = r#"{
             "id":"ENSG00000157764",
             "seq_region_name":"7",
@@ -459,6 +461,58 @@ mod tests {
         assert_eq!(r.object_type, "Gene");
         assert_eq!(r.display_name, "BRAF");
         assert_eq!(r.assembly_name, "GRCh38");
+    }
+
+    #[test]
+    fn keyword_and_case_mismatched_wire_names_are_renamed() {
+        // Every real #[serde(rename)] in this file, keyed on its actual wire
+        // name (not the Rust field name), asserting the renamed field
+        // populates. A wrong or missing rename leaves these at their
+        // `#[serde(default)]` zero value with no error, so this is the only
+        // thing that would catch it.
+        let archive: ArchiveRecord = serde_json::from_str(r#"{"id":"a","type":"Gene"}"#).unwrap();
+        assert_eq!(archive.kind, "Gene");
+
+        let homology: HomologyRecord =
+            serde_json::from_str(r#"{"type":"ortholog_one2one"}"#).unwrap();
+        assert_eq!(homology.kind, "ortholog_one2one");
+
+        let lookup: LookupRecord = serde_json::from_str(
+            r#"{"id":"ENSG01","Translation":{"id":"ENSP01"},"Exon":[{"id":"ENSE01"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(lookup.translation.unwrap().id, "ENSP01");
+        assert_eq!(lookup.exons[0].id, "ENSE01");
+
+        let variation: VariationRecord = serde_json::from_str(r#"{"MAF":0.25}"#).unwrap();
+        assert_eq!(variation.maf, Some(0.25));
+
+        let beacon: BeaconResponse =
+            serde_json::from_str(r#"{"apiVersion":"1.0","welcomeUrl":"https://example.org"}"#)
+                .unwrap();
+        assert_eq!(beacon.api_version, "1.0");
+        assert_eq!(beacon.welcome_url, "https://example.org");
+
+        let query: BeaconQueryResponse = serde_json::from_str(
+            r#"{"beaconId":"b1","alleleRequest":{"a":1},"datasetAlleleResponses":[{"b":2}]}"#,
+        )
+        .unwrap();
+        assert_eq!(query.beacon_id, "b1");
+        assert_eq!(query.allele_request["a"], 1);
+        assert_eq!(query.dataset_allele_responses[0]["b"], 2);
+    }
+
+    #[test]
+    fn translation_recursion_via_box_round_trips() {
+        // `Option<Box<LookupRecord>>` exists purely to break the recursive
+        // type; this is the only test that exercises that path (the sibling
+        // `Vec<LookupRecord>` recursion is covered by
+        // `nested_transcripts_round_trip` below).
+        let json = r#"{"id":"ENST01","Translation":{"id":"ENSP01","biotype":"protein_coding"}}"#;
+        let r: LookupRecord = serde_json::from_str(json).unwrap();
+        let translation = r.translation.expect("translation should be Some");
+        assert_eq!(translation.id, "ENSP01");
+        assert_eq!(translation.biotype, "protein_coding");
     }
 
     #[test]
