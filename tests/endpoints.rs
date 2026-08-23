@@ -890,3 +890,588 @@ fn get_transcript_haplotypes() {
         "/transcript_haplotypes/homo_sapiens/ENST00000288602"
     );
 }
+
+// ---- ga4gh ----
+
+#[test]
+fn get_ga4gh_beacon() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server).get_ga4gh_beacon(&[]).unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/beacon");
+}
+
+#[test]
+fn get_ga4gh_beacon_query() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_beacon_query("A", "GRCh38", "C", "1", 100_176_903, &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/beacon/query");
+    assert!(req.query().contains("alternateBases=A"));
+    assert!(req.query().contains("assemblyId=GRCh38"));
+    assert!(req.query().contains("referenceBases=C"));
+    assert!(req.query().contains("referenceName=1"));
+    assert!(req.query().contains("start=100176903"));
+}
+
+#[test]
+fn post_ga4gh_beacon_query() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .post_ga4gh_beacon_query(
+            Some("A"),
+            Some("GRCh38"),
+            Some(100_176_904),
+            Some("C"),
+            Some("1"),
+            Some(100_176_903),
+            None,
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/beacon/query");
+    assert_eq!(req.json()["alternateBases"], "A");
+    assert_eq!(req.json()["assemblyId"], "GRCh38");
+    assert_eq!(req.json()["end"], 100_176_904);
+    assert_eq!(req.json()["referenceBases"], "C");
+    assert_eq!(req.json()["referenceName"], "1");
+    assert_eq!(req.json()["start"], 100_176_903);
+    assert!(req.json().get("variantType").is_none());
+}
+
+#[test]
+fn get_ga4gh_features_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_features_by_id("ENSG00000157764.7", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/features/ENSG00000157764.7");
+}
+
+#[test]
+fn search_ga4gh_features() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_features(
+            Some(1_000_100),
+            Some("1"),
+            Some(1_000_000),
+            Some("Ensembl"),
+            None,
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/features/search");
+    assert_eq!(req.json()["end"], 1_000_100);
+    assert_eq!(req.json()["referenceName"], "1");
+    assert_eq!(req.json()["start"], 1_000_000);
+    assert_eq!(req.json()["featureSetId"], "Ensembl");
+    assert!(req.json().get("parentId").is_none());
+}
+
+#[test]
+fn search_ga4gh_callset() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_callset(Some("1"), Some("NA12878"), None, Some(10), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/callsets/search");
+    assert_eq!(req.json()["variantSetId"], "1");
+    assert_eq!(req.json()["name"], "NA12878");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_callset_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server).get_ga4gh_callset_by_id("1", &[]).unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/callsets/1");
+}
+
+#[test]
+fn search_ga4gh_datasets() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_datasets(Some("abc"), Some(5), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/datasets/search");
+    assert_eq!(req.json()["pageToken"], "abc");
+    assert_eq!(req.json()["pageSize"], 5);
+}
+
+#[test]
+fn get_ga4gh_datasets_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_datasets_by_id("6e340c4d1e333c7a676b1710d2e3953c", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(
+        req.path(),
+        "/ga4gh/datasets/6e340c4d1e333c7a676b1710d2e3953c"
+    );
+}
+
+#[test]
+fn search_ga4gh_featuresets() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_featuresets(Some("Ensembl"), None, Some(10), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/featuresets/search");
+    assert_eq!(req.json()["datasetId"], "Ensembl");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_featuresets_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_featuresets_by_id("Ensembl", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/featuresets/Ensembl");
+}
+
+#[test]
+fn get_ga4gh_variants_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_variants_by_id("1:rs1333049", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/variants/1:rs1333049");
+}
+
+#[test]
+fn search_ga4gh_variant_annotations() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_variant_annotations(
+            Some("Ensembl"),
+            Some(&["ontology_term:SO:0001627"]),
+            Some(1_000_100),
+            Some(10),
+            None,
+            None,
+            Some("1"),
+            Some(1_000_000),
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/variantannotations/search");
+    assert_eq!(req.json()["variantAnnotationSetId"], "Ensembl");
+    assert_eq!(req.json()["effects"][0], "ontology_term:SO:0001627");
+    assert_eq!(req.json()["end"], 1_000_100);
+    assert_eq!(req.json()["pageSize"], 10);
+    assert_eq!(req.json()["referenceName"], "1");
+    assert_eq!(req.json()["start"], 1_000_000);
+    assert!(req.json().get("pageToken").is_none());
+    assert!(req.json().get("referenceId").is_none());
+}
+
+#[test]
+fn search_ga4gh_variants() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_variants(
+            Some("1"),
+            Some(&["NA12878"]),
+            Some("1"),
+            Some(1_000_000),
+            Some(1_000_100),
+            None,
+            Some(10),
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/variants/search");
+    assert_eq!(req.json()["variantSetId"], "1");
+    assert_eq!(req.json()["callSetIds"][0], "NA12878");
+    assert_eq!(req.json()["referenceName"], "1");
+    assert_eq!(req.json()["start"], 1_000_000);
+    assert_eq!(req.json()["end"], 1_000_100);
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn search_ga4gh_variantsets() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_variantsets(Some("1"), None, Some(10), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/variantsets/search");
+    assert_eq!(req.json()["datasetId"], "1");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_variantsets_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_variantsets_by_id("1", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/variantsets/1");
+}
+
+#[test]
+fn search_ga4gh_references() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_references(
+            Some("GRCh38"),
+            None,
+            Some("GCA_000001405"),
+            None,
+            Some(10),
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/references/search");
+    assert_eq!(req.json()["referenceSetId"], "GRCh38");
+    assert_eq!(req.json()["accession"], "GCA_000001405");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("md5checksum").is_none());
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_references_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_references_by_id("GRCh38:1", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/references/GRCh38:1");
+}
+
+#[test]
+fn search_ga4gh_referencesets() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_referencesets(Some("GCA_000001405"), None, Some(10), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/referencesets/search");
+    assert_eq!(req.json()["accession"], "GCA_000001405");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_referencesets_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_referencesets_by_id("GRCh38", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/referencesets/GRCh38");
+}
+
+#[test]
+fn search_ga4gh_variant_annotationsets() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .search_ga4gh_variant_annotationsets(Some("1"), None, Some(10), &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/ga4gh/variantannotationsets/search");
+    assert_eq!(req.json()["variantSetId"], "1");
+    assert_eq!(req.json()["pageSize"], 10);
+    assert!(req.json().get("pageToken").is_none());
+}
+
+#[test]
+fn get_ga4gh_variant_annotationsets_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_ga4gh_variant_annotationsets_by_id("Ensembl", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/ga4gh/variantannotationsets/Ensembl");
+}
+
+// ---- variation ----
+
+#[test]
+fn get_variation_recoder_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_recoder_by_id("human", "rs56116432", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/variant_recoder/human/rs56116432");
+}
+
+#[test]
+fn get_variation_recoder_by_multiple_ids() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_recoder_by_multiple_ids("human", &["rs56116432", "COSM476"], &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/variant_recoder/human");
+    assert_eq!(req.json()["ids"][0], "rs56116432");
+    assert_eq!(req.json()["ids"][1], "COSM476");
+}
+
+#[test]
+fn get_variation_by_id() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_by_id("homo_sapiens", "rs56116432", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/variation/homo_sapiens/rs56116432");
+}
+
+#[test]
+fn get_variation_by_pmcid() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_by_pmcid("homo_sapiens", "PMC5002951", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/variation/homo_sapiens/pmcid/PMC5002951");
+}
+
+#[test]
+fn get_variation_by_pmid() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_by_pmid("homo_sapiens", "26318936", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/variation/homo_sapiens/pmid/26318936");
+}
+
+#[test]
+fn get_variation_by_multiple_ids() {
+    let server = MockServer::with_json(200, "{}");
+    client(&server)
+        .get_variation_by_multiple_ids("homo_sapiens", &["rs56116432", "COSM476"], &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/variation/homo_sapiens");
+    assert_eq!(req.json()["ids"][0], "rs56116432");
+    assert_eq!(req.json()["ids"][1], "COSM476");
+}
+
+// ---- vep ----
+
+#[test]
+fn get_variant_consequences_by_hgvs_notation() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_hgvs_notation("human", "AGT:c.803T>C", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    // `>` is not in the path-safe set, so it is percent-encoded.
+    assert_eq!(req.path(), "/vep/human/hgvs/AGT:c.803T%3EC");
+}
+
+#[test]
+fn get_variant_consequences_by_multiple_hgvs_notations() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_multiple_hgvs_notations(
+            "human",
+            &["AGT:c.803T>C", "9:g.22125504G>C"],
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/vep/human/hgvs/");
+    assert_eq!(req.json()["hgvs_notations"][0], "AGT:c.803T>C");
+    assert_eq!(req.json()["hgvs_notations"][1], "9:g.22125504G>C");
+}
+
+#[test]
+fn get_variant_consequences_by_id() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_id("human", "rs56116432", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/vep/human/id/rs56116432");
+}
+
+#[test]
+fn get_variant_consequences_by_multiple_ids() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_multiple_ids("human", &["rs56116432", "COSM476"], &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/vep/human/id");
+    assert_eq!(req.json()["ids"][0], "rs56116432");
+    assert_eq!(req.json()["ids"][1], "COSM476");
+}
+
+#[test]
+fn get_variant_consequences_by_region() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_region("human", "9:22125503-22125502:1", "C", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/vep/human/region/9:22125503-22125502:1/C");
+}
+
+#[test]
+fn get_variant_consequences_by_multiple_regions() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_variant_consequences_by_multiple_regions(
+            "human",
+            &["9 22125503 22125502 1/C . . ."],
+            &[],
+        )
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.path(), "/vep/human/region");
+    assert_eq!(req.json()["variants"][0], "9 22125503 22125502 1/C . . .");
+}
+
+// ---- phenotype ----
+
+#[test]
+fn get_phenotype_by_accession() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_phenotype_by_accession("homo_sapiens", "EFO:0003877", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/phenotype/accession/homo_sapiens/EFO:0003877");
+}
+
+#[test]
+fn get_phenotype_by_gene() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_phenotype_by_gene("homo_sapiens", "BRCA2", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.path(), "/phenotype/gene/homo_sapiens/BRCA2");
+}
+
+#[test]
+fn get_phenotype_by_region() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_phenotype_by_region("homo_sapiens", "9:22125500-22125502", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    assert_eq!(
+        req.path(),
+        "/phenotype/region/homo_sapiens/9:22125500-22125502"
+    );
+}
+
+#[test]
+fn get_phenotype_by_term() {
+    let server = MockServer::with_json(200, "[]");
+    client(&server)
+        .get_phenotype_by_term("homo_sapiens", "coronary heart disease", &[])
+        .unwrap();
+
+    let req = server.only_request();
+    assert_eq!(req.method, "GET");
+    // Spaces in a path segment are percent-encoded.
+    assert_eq!(
+        req.path(),
+        "/phenotype/term/homo_sapiens/coronary%20heart%20disease"
+    );
+}

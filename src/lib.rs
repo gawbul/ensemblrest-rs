@@ -78,15 +78,19 @@ pub mod types;
 
 mod archive;
 mod comparative;
+mod ga4gh;
 mod info;
 mod ld;
 mod lookup;
 mod mapping;
 mod ontology;
 mod overlap;
+mod phenotype;
 mod regulation;
 mod sequence;
 mod transcript;
+mod variation;
+mod vep;
 mod xrefs;
 
 #[cfg(test)]
