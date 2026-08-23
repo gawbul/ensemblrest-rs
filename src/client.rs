@@ -30,9 +30,9 @@ pub(crate) struct Inner {
 ///
 /// # Examples
 ///
-// TODO(Task 16): restore to no_run once get_info_species exists
-/// ```ignore
+/// ```no_run
 /// # use ensemblrest::Client;
+/// # use ensemblrest::serde_json;
 /// # fn main() -> ensemblrest::Result<()> {
 /// let client = Client::new()?;
 /// let species: serde_json::Value = client.get_info_species(&[])?.json()?;

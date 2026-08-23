@@ -13,14 +13,13 @@ use crate::ratelimit::RateLimitInfo;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```no_run
 /// # use ensemblrest::{Client, types::LookupRecord};
 /// # fn main() -> ensemblrest::Result<()> {
 /// let client = Client::new()?;
 /// let record: LookupRecord = client.get_lookup_by_id("ENSG00000157764", &[])?.json()?;
 /// # Ok(())
 /// # }
-/// // TODO(Task 16): restore to no_run once Client and types exist
 /// ```
 #[derive(Debug, Clone)]
 pub struct Response {

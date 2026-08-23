@@ -984,6 +984,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use ensemblrest::Client;
+    /// # use ensemblrest::serde_json;
     /// # fn main() -> ensemblrest::Result<()> {
     /// let client = Client::new()?;
     /// let v: serde_json::Value = client
