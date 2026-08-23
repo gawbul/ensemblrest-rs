@@ -8,11 +8,47 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// Deserializes a JSON `null` as the field's `Default`, matching the null
+/// tolerance the Go port gets for free from `encoding/json`.
+///
+/// Go's `encoding/json` silently decodes a JSON `null` into a `string` as
+/// `""`, into numeric types as `0`, and into a slice as `nil`. Serde does
+/// not: decoding `null` into a non-`Option` field such as `String` or `i64`
+/// is a hard type error that fails deserialization of the *entire*
+/// response, not just that field. These models were ported field-for-field
+/// from the Go port's `types.go` on the assumption that its field types
+/// carried over — but Go's null tolerance did not come with them. Ensembl's
+/// API does send explicit `null` for fields it has no value for: for
+/// example, `/info/species` currently returns `"strain": null` for most
+/// species (including `homo_sapiens` itself) and `"accession": null` for
+/// some.
+///
+/// `#[serde(default)]` on the struct does not fix this by itself: it only
+/// supplies a default when a key is *missing* from the object, not when the
+/// key is present with a `null` value. Pairing `#[serde(default,
+/// deserialize_with = "null_to_default")]` on a field restores Go's
+/// tolerance by treating a present-but-null value the same as an absent
+/// one.
+///
+/// `Option<T>` fields are deliberately left without this attribute: they
+/// already represent "may be absent or null" on their own, and wrapping
+/// them here would be redundant. Bare [`Value`] fields don't need it
+/// either: `Value`'s own `Deserialize` impl already accepts `null` (as
+/// [`Value::Null`]) without error.
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 /// The response from `/info/ping`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PingResponse {
     /// `1` when the service is up.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub ping: i64,
 }
 
@@ -21,23 +57,30 @@ pub struct PingResponse {
 #[serde(default)]
 pub struct ArchiveRecord {
     /// The queried identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The latest versioned identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub latest: String,
     /// The identifier version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub version: i64,
     /// The Ensembl release this record came from.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub release: String,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly: String,
     /// The peptide sequence, when the identifier is a translation.
     pub peptide: Option<String>,
     /// The feature type.
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default, deserialize_with = "null_to_default")]
     pub kind: String,
     /// Identifiers that may replace a retired one.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub possible_replacement: Vec<String>,
     /// Whether this is the current version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub is_current: String,
 }
 
@@ -46,43 +89,58 @@ pub struct ArchiveRecord {
 #[serde(default)]
 pub struct LookupRecord {
     /// The stable identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The feature type, for example `"Gene"` or `"Transcript"`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub object_type: String,
     /// The species name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub species: String,
     /// The display label.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub display_name: String,
     /// A free-text description.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub description: String,
     /// The biotype, for example `"protein_coding"`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub biotype: String,
     /// The sequence region, typically a chromosome name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub seq_region_name: String,
     /// The start coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub start: i64,
     /// The end coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub end: i64,
     /// The strand, `1` or `-1`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub strand: i64,
     /// The annotation source.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub source: String,
     /// The feature version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub version: i64,
     /// The database type.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub db_type: String,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_name: String,
     /// The canonical transcript identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub canonical_transcript: String,
     /// Child transcripts, populated by `?expand=1`.
-    #[serde(rename = "Transcript")]
+    #[serde(rename = "Transcript", default, deserialize_with = "null_to_default")]
     pub transcripts: Vec<LookupRecord>,
     /// The translation, populated by `?expand=1`.
     #[serde(rename = "Translation")]
     pub translation: Option<Box<LookupRecord>>,
     /// Child exons, populated by `?expand=1`.
-    #[serde(rename = "Exon")]
+    #[serde(rename = "Exon", default, deserialize_with = "null_to_default")]
     pub exons: Vec<LookupRecord>,
     /// Any additional fields the API returned.
     ///
@@ -97,16 +155,22 @@ pub struct LookupRecord {
 #[serde(default)]
 pub struct SequenceRecord {
     /// The stable identifier the sequence was fetched for.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The sequence itself.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub seq: String,
     /// A free-text description.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub desc: String,
     /// The original query string, for region-based lookups.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub query: String,
     /// The sequence version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub version: i64,
     /// The molecule type, for example `"dna"` or `"protein"`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub molecule: String,
 }
 
@@ -115,42 +179,61 @@ pub struct SequenceRecord {
 #[serde(default)]
 pub struct SpeciesRecord {
     /// The production name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
     /// The human-readable name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub display_name: String,
     /// The NCBI taxonomy identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub taxon_id: String,
     /// The species name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub species: String,
     /// The common name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub common_name: String,
     /// The Ensembl division.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub division: String,
     /// The Ensembl release.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub release: i64,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly: String,
     /// The assembly accession.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub accession: String,
     /// Alternative names.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub aliases: Vec<String>,
     /// Group memberships.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub groups: Vec<String>,
     /// The strain, where applicable.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub strain: String,
     /// The strain type.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub strain_type: String,
     /// Whether this is the reference genome for its group.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub is_reference: i64,
     /// Whether pan-taxonomic comparative data is available.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub has_pan_compara: i64,
     /// Whether variation data is available.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub has_variations: i64,
     /// Whether peptide comparative data is available.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub has_peptide_compara: i64,
     /// Whether whole-genome alignments are available.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub has_genome_alignments: i64,
     /// Whether synteny data is available.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub has_synteny: i64,
 }
 
@@ -159,6 +242,7 @@ pub struct SpeciesRecord {
 #[serde(default)]
 pub struct SpeciesResponse {
     /// The species records.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub species: Vec<SpeciesRecord>,
 }
 
@@ -167,28 +251,40 @@ pub struct SpeciesResponse {
 #[serde(default)]
 pub struct AssemblyInfo {
     /// The date the assembly was produced.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_date: String,
     /// The assembly level, for example `"chromosome"`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_level: String,
     /// The assembly's INSDC accession.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_accession: String,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_name: String,
     /// The default coordinate system version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub default_coord_system_version: String,
     /// The date the gene build was produced.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub genebuild_date: String,
     /// The gene build method.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub genebuild_method: String,
     /// The date the gene build started.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub genebuild_start_date: String,
     /// The gene build version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub genebuild_version: String,
     /// The names of the top-level sequence regions.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub top_level_region: Vec<String>,
     /// The karyotype, as an ordered list of chromosome names.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub karyotype: Vec<String>,
     /// The coordinate system versions available for this assembly.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub coord_system_versions: Vec<Value>,
 }
 
@@ -197,16 +293,22 @@ pub struct AssemblyInfo {
 #[serde(default)]
 pub struct AssemblyRegionInfo {
     /// The region's length, in base pairs.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub length: i64,
     /// The coordinate system this region belongs to.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub coord_system: String,
     /// `1` when the region is a chromosome.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub is_chromosome: i64,
     /// `1` when the region is circular.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub is_circular: i64,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly: String,
     /// The sequence region name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub seq_region_name: String,
 }
 
@@ -215,11 +317,13 @@ pub struct AssemblyRegionInfo {
 #[serde(default)]
 pub struct HomologyRecord {
     /// The homology type, for example `"ortholog_one2one"`.
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default, deserialize_with = "null_to_default")]
     pub kind: String,
     /// The comparative analysis method used to call the homology.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub method_link_type: String,
     /// The taxonomic level the homology was called at.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub taxonomy_level: String,
     /// The source gene of the homology.
     pub source: Value,
@@ -236,10 +340,13 @@ pub struct HomologyRecord {
 #[serde(default)]
 pub struct HomologyData {
     /// The queried gene's stable identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The homologous genes found.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub homologies: Vec<HomologyRecord>,
     /// The last common ancestor taxon, when known.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub last_common_ancestor: String,
 }
 
@@ -248,6 +355,7 @@ pub struct HomologyData {
 #[serde(default)]
 pub struct HomologyResponse {
     /// One entry per queried gene.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub data: Vec<HomologyData>,
 }
 
@@ -256,20 +364,28 @@ pub struct HomologyResponse {
 #[serde(default)]
 pub struct XrefRecord {
     /// The external identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The external database name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub dbname: String,
     /// The display identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub display_id: String,
     /// The primary identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub primary_id: String,
     /// A free-text description.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub description: String,
     /// Known synonyms.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub synonyms: Vec<String>,
     /// The type of cross-reference information.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub info_type: String,
     /// Free-text information about the cross-reference.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub info_text: String,
 }
 
@@ -278,29 +394,40 @@ pub struct XrefRecord {
 #[serde(default)]
 pub struct VariationRecord {
     /// The variant name, for example `"rs699"`.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
     /// The source database.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub source: String,
     /// The variant class.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub var_class: String,
     /// The most severe consequence term.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub most_severe_consequence: String,
     /// The minor allele frequency.
     #[serde(rename = "MAF")]
     pub maf: Option<f64>,
     /// The minor allele.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub minor_allele: String,
     /// Supporting evidence terms.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub evidence: Vec<String>,
     /// Known synonyms.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub synonyms: Vec<String>,
     /// Clinical significance terms.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub clinical_significance: Vec<String>,
     /// Genomic mappings.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub mappings: Vec<Value>,
     /// Genotype records.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub genotypes: Vec<Value>,
     /// Phenotype annotations.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub phenotypes: Vec<Value>,
 }
 
@@ -309,8 +436,10 @@ pub struct VariationRecord {
 #[serde(default)]
 pub struct LDRecord {
     /// The first variant.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub variation1: String,
     /// The second variant.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub variation2: String,
     /// The D' statistic.
     pub d_prime: Option<f64>,
@@ -323,16 +452,22 @@ pub struct LDRecord {
 #[serde(default)]
 pub struct MappedCoordinate {
     /// The sequence region name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub seq_region_name: String,
     /// The start coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub start: i64,
     /// The end coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub end: i64,
     /// The strand.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub strand: i64,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly: String,
     /// The coordinate system.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub coord_system: String,
 }
 
@@ -341,8 +476,10 @@ pub struct MappedCoordinate {
 #[serde(default)]
 pub struct Mapping {
     /// The input coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub original: MappedCoordinate,
     /// The projected coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub mapped: MappedCoordinate,
 }
 
@@ -351,6 +488,7 @@ pub struct Mapping {
 #[serde(default)]
 pub struct MappingRecord {
     /// The coordinate mappings.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub mappings: Vec<Mapping>,
 }
 
@@ -359,26 +497,37 @@ pub struct MappingRecord {
 #[serde(default)]
 pub struct VEPRecord {
     /// The identifier the effect was predicted for.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The original input line or identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub input: String,
     /// The assembly name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub assembly_name: String,
     /// The sequence region name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub seq_region_name: String,
     /// The start coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub start: i64,
     /// The end coordinate.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub end: i64,
     /// The strand.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub strand: i64,
     /// The most severe predicted consequence term.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub most_severe_consequence: String,
     /// Per-transcript consequences.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub transcript_consequences: Vec<Value>,
     /// Intergenic consequences.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub intergenic_consequences: Vec<Value>,
     /// Known variants co-located with the input.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub colocated_variants: Vec<Value>,
 }
 
@@ -387,22 +536,27 @@ pub struct VEPRecord {
 #[serde(default)]
 pub struct BeaconResponse {
     /// The beacon's identifier.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub id: String,
     /// The beacon's name.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
     /// The GA4GH Beacon API version implemented.
-    #[serde(rename = "apiVersion")]
+    #[serde(rename = "apiVersion", default, deserialize_with = "null_to_default")]
     pub api_version: String,
     /// The organization responsible for the beacon.
     pub organization: Value,
     /// A free-text description.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub description: String,
     /// The beacon's version.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub version: String,
     /// The beacon's welcome page URL.
-    #[serde(rename = "welcomeUrl")]
+    #[serde(rename = "welcomeUrl", default, deserialize_with = "null_to_default")]
     pub welcome_url: String,
     /// The datasets the beacon can query.
+    #[serde(default, deserialize_with = "null_to_default")]
     pub datasets: Vec<Value>,
 }
 
@@ -411,7 +565,7 @@ pub struct BeaconResponse {
 #[serde(default)]
 pub struct BeaconQueryResponse {
     /// The identifier of the beacon that answered the query.
-    #[serde(rename = "beaconId")]
+    #[serde(rename = "beaconId", default, deserialize_with = "null_to_default")]
     pub beacon_id: String,
     /// Whether the queried allele was observed.
     pub exists: Option<bool>,
@@ -419,7 +573,11 @@ pub struct BeaconQueryResponse {
     #[serde(rename = "alleleRequest")]
     pub allele_request: Value,
     /// Per-dataset allele responses.
-    #[serde(rename = "datasetAlleleResponses")]
+    #[serde(
+        rename = "datasetAlleleResponses",
+        default,
+        deserialize_with = "null_to_default"
+    )]
     pub dataset_allele_responses: Vec<Value>,
     /// An error, when the query could not be answered.
     pub error: Value,
@@ -556,5 +714,46 @@ mod tests {
         let v: VariationRecord = serde_json::from_str(json).unwrap();
         assert_eq!(v.name, "rs699");
         assert_eq!(v.mappings[0]["location"], "1:1-1");
+    }
+
+    #[test]
+    fn null_string_fields_default_rather_than_erroring() {
+        // This is exactly what /info/species sends today: `strain` is null
+        // for most species (including homo_sapiens), and `accession` is
+        // null for some. Without `null_to_default`, decoding any one of
+        // these fields as `null` fails the ENTIRE record, not just the
+        // field — this reproduces the live-test failure caught against the
+        // real API.
+        let json = r#"{
+            "name": "homo_sapiens",
+            "taxon_id": null,
+            "accession": null,
+            "strain": null
+        }"#;
+        let r: SpeciesRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(r.name, "homo_sapiens");
+        assert_eq!(r.taxon_id, "");
+        assert_eq!(r.accession, "");
+        assert_eq!(r.strain, "");
+    }
+
+    #[test]
+    fn null_numeric_and_vec_fields_default_rather_than_erroring() {
+        // Same guarantee, for a numeric field and a Vec field: a present
+        // `null` must land as the type's Default, not fail the record.
+        let json = r#"{"name":"homo_sapiens","release":null,"aliases":null}"#;
+        let r: SpeciesRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(r.release, 0);
+        assert!(r.aliases.is_empty());
+    }
+
+    #[test]
+    fn null_tolerance_is_model_wide_not_special_cased_to_species() {
+        // The same guarantee must hold on a different model, so this isn't
+        // a one-off fix scoped to SpeciesRecord.
+        let json = r#"{"id":"ENSG00000157764","display_name":null}"#;
+        let r: LookupRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(r.id, "ENSG00000157764");
+        assert_eq!(r.display_name, "");
     }
 }
