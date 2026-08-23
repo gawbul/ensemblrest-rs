@@ -104,18 +104,22 @@ impl Client {
     }
 
     /// Returns sets of genotype calls for specific samples in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_callset(
         &self,
         variant_set_id: Option<&str>,
         name: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
             ("variantSetId", variant_set_id.map(|v| json!(v))),
             ("name", name.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHCallset", &[], Some(&body), opts)
@@ -131,14 +135,18 @@ impl Client {
     }
 
     /// Searches for datasets in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_datasets(
         &self,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHDatasets", &[], Some(&body), opts)
@@ -154,16 +162,20 @@ impl Client {
     }
 
     /// Searches for feature sets in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_featuresets(
         &self,
         dataset_id: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
             ("datasetId", dataset_id.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHFeaturesets", &[], Some(&body), opts)
@@ -188,14 +200,21 @@ impl Client {
     }
 
     /// Searches for variant annotations in GA4GH format.
+    ///
+    /// `effects` is documented by Ensembl as an array of `OntologyTerm`
+    /// objects, not bare strings, so it is passed through verbatim rather
+    /// than typed as `&[&str]` (which could not express a valid request).
+    /// `page_token`'s type is likewise ambiguous between sources (Ensembl
+    /// docs say `Integer`, the GA4GH spec says `string`) and is passed
+    /// through verbatim too. See [`Client::call`] for full control.
     #[allow(clippy::too_many_arguments)]
     pub fn search_ga4gh_variant_annotations(
         &self,
         variant_annotation_set_id: Option<&str>,
-        effects: Option<&[&str]>,
+        effects: Option<&Value>,
         end: Option<i64>,
         page_size: Option<i64>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         reference_id: Option<&str>,
         reference_name: Option<&str>,
         start: Option<i64>,
@@ -206,10 +225,10 @@ impl Client {
                 "variantAnnotationSetId",
                 variant_annotation_set_id.map(|v| json!(v)),
             ),
-            ("effects", effects.map(|v| json!(v))),
+            ("effects", effects.cloned()),
             ("end", end.map(|v| json!(v))),
             ("pageSize", page_size.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("referenceId", reference_id.map(|v| json!(v))),
             ("referenceName", reference_name.map(|v| json!(v))),
             ("start", start.map(|v| json!(v))),
@@ -218,6 +237,10 @@ impl Client {
     }
 
     /// Searches for variant calls in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     #[allow(clippy::too_many_arguments)]
     pub fn search_ga4gh_variants(
         &self,
@@ -226,7 +249,7 @@ impl Client {
         reference_name: Option<&str>,
         start: Option<i64>,
         end: Option<i64>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
@@ -236,23 +259,27 @@ impl Client {
             ("referenceName", reference_name.map(|v| json!(v))),
             ("start", start.map(|v| json!(v))),
             ("end", end.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHVariants", &[], Some(&body), opts)
     }
 
     /// Searches for variant sets in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_variantsets(
         &self,
         dataset_id: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
             ("datasetId", dataset_id.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHVariantsets", &[], Some(&body), opts)
@@ -268,12 +295,16 @@ impl Client {
     }
 
     /// Searches for reference sequences in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_references(
         &self,
         reference_set_id: Option<&str>,
         md5checksum: Option<&str>,
         accession: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
@@ -281,7 +312,7 @@ impl Client {
             ("referenceSetId", reference_set_id.map(|v| json!(v))),
             ("md5checksum", md5checksum.map(|v| json!(v))),
             ("accession", accession.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHReferences", &[], Some(&body), opts)
@@ -297,16 +328,20 @@ impl Client {
     }
 
     /// Searches for reference sets in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_referencesets(
         &self,
         accession: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
             ("accession", accession.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHReferencesets", &[], Some(&body), opts)
@@ -322,16 +357,20 @@ impl Client {
     }
 
     /// Searches for annotation sets in GA4GH format.
+    ///
+    /// `page_token`'s type is ambiguous between sources (Ensembl docs say
+    /// `Integer`, the GA4GH spec says `string`), so it is passed through
+    /// verbatim; see [`Client::call`] for full control.
     pub fn search_ga4gh_variant_annotationsets(
         &self,
         variant_set_id: Option<&str>,
-        page_token: Option<&str>,
+        page_token: Option<&Value>,
         page_size: Option<i64>,
         opts: &[RequestOption<'_>],
     ) -> Result<Response> {
         let body = search_body(&[
             ("variantSetId", variant_set_id.map(|v| json!(v))),
-            ("pageToken", page_token.map(|v| json!(v))),
+            ("pageToken", page_token.cloned()),
             ("pageSize", page_size.map(|v| json!(v))),
         ]);
         self.call("searchGA4GHVariantAnnotationsets", &[], Some(&body), opts)

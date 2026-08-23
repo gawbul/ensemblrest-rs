@@ -7,6 +7,7 @@ mod common;
 
 use common::mock::MockServer;
 use ensemblrest::Client;
+use ensemblrest::serde_json::json;
 
 /// A client pointed at a mock server returning `{}` once.
 fn client(server: &MockServer) -> Client {
@@ -1012,15 +1013,19 @@ fn get_ga4gh_callset_by_id() {
 
 #[test]
 fn search_ga4gh_datasets() {
+    // `page_token` is `Option<&serde_json::Value>` because Ensembl's docs
+    // (Integer) and the GA4GH spec (string) disagree on its type; this
+    // exercises the integer shape passed straight through.
+    let page_token = json!(42);
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_datasets(Some("abc"), Some(5), &[])
+        .search_ga4gh_datasets(Some(&page_token), Some(5), &[])
         .unwrap();
 
     let req = server.only_request();
     assert_eq!(req.method, "POST");
     assert_eq!(req.path(), "/ga4gh/datasets/search");
-    assert_eq!(req.json()["pageToken"], "abc");
+    assert_eq!(req.json()["pageToken"], 42);
     assert_eq!(req.json()["pageSize"], 5);
 }
 
@@ -1080,11 +1085,16 @@ fn get_ga4gh_variants_by_id() {
 
 #[test]
 fn search_ga4gh_variant_annotations() {
+    // `effects` is documented as an array of `OntologyTerm` objects, not
+    // bare strings, so it is `Option<&serde_json::Value>` and passed through
+    // verbatim. This proves the passthrough works for a non-trivial value: a
+    // real array-of-objects shape that `&[&str]` could never have expressed.
+    let effects = json!([{"id": "SO:0001627", "term": "intron_variant"}]);
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .search_ga4gh_variant_annotations(
             Some("Ensembl"),
-            Some(&["ontology_term:SO:0001627"]),
+            Some(&effects),
             Some(1_000_100),
             Some(10),
             None,
@@ -1099,7 +1109,8 @@ fn search_ga4gh_variant_annotations() {
     assert_eq!(req.method, "POST");
     assert_eq!(req.path(), "/ga4gh/variantannotations/search");
     assert_eq!(req.json()["variantAnnotationSetId"], "Ensembl");
-    assert_eq!(req.json()["effects"][0], "ontology_term:SO:0001627");
+    assert_eq!(req.json()["effects"][0]["id"], "SO:0001627");
+    assert_eq!(req.json()["effects"][0]["term"], "intron_variant");
     assert_eq!(req.json()["end"], 1_000_100);
     assert_eq!(req.json()["pageSize"], 10);
     assert_eq!(req.json()["referenceName"], "1");
