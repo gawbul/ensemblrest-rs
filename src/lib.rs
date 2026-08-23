@@ -70,6 +70,10 @@ pub mod client;
 
 pub use client::{Client, ClientBuilder};
 
+pub(crate) mod request;
+
+pub mod endpoints;
+
 #[cfg(test)]
 mod tests {
     use super::*;

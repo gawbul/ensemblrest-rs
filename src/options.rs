@@ -46,9 +46,6 @@ pub fn header<'a>(key: &'a str, value: &'a str) -> RequestOption<'a> {
 
 /// The resolved effect of a slice of [`RequestOption`]s.
 #[derive(Debug, Clone)]
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` constructs or reads it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) struct RequestConfig<'a> {
     pub(crate) query: Vec<(&'a str, &'a str)>,
     pub(crate) headers: Vec<(&'a str, &'a str)>,
@@ -59,9 +56,6 @@ pub(crate) struct RequestConfig<'a> {
 ///
 /// The effective content type is the last [`RequestOption::ContentType`] given,
 /// or `default_content_type` when none is.
-// Consumed by endpoint dispatch starting in Task 10; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn resolve<'a>(
     default_content_type: &'a str,
     opts: &'a [RequestOption<'a>],

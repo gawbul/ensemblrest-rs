@@ -12,18 +12,12 @@ use crate::{
 
 #[derive(Debug)]
 pub(crate) struct Inner {
-    // Consumed by request execution starting in Task 9; until then nothing
-    // outside `#[cfg(test)]` reads these fields.
-    #[expect(dead_code)]
     pub(crate) agent: ureq::Agent,
     pub(crate) base_url: String,
     pub(crate) user_agent: String,
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) max_attempts: u32,
-    #[expect(dead_code)]
     pub(crate) wall_time: Duration,
-    #[expect(dead_code)]
     pub(crate) max_response_bytes: u64,
     pub(crate) limiter: RateLimiter,
 }
@@ -158,6 +152,15 @@ impl ClientBuilder {
     pub fn max_response_bytes(mut self, bytes: u64) -> Self {
         self.max_response_bytes = bytes;
         self
+    }
+
+    /// Shrinks the rate-limit window so retry backoff is fast in tests.
+    ///
+    /// Backoff is `attempt * wall_time * 2`, so a 5 ms window keeps a
+    /// four-retry sequence under 100 ms.
+    #[doc(hidden)]
+    pub fn wall_time_for_test(self) -> Self {
+        self.rate_limit(1000, Duration::from_millis(5))
     }
 
     /// Supplies a pre-configured `ureq` agent, bypassing the timeout setting.

@@ -199,8 +199,6 @@ fn serve_one(
     // Set read and write timeouts to prevent hanging on stalled clients. This converts
     // a silent hang into a fast failure, and ensures MockServer::drop's join() can
     // complete even if serve_one is mid-request.
-    let _ = timeout;
-    let _ = timeout;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
 

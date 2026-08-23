@@ -5,14 +5,8 @@
 
 use crate::error::{Error, Result};
 
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 fn push_escaped(out: &mut String, byte: u8) {
     out.push('%');
     out.push(HEX[(byte >> 4) as usize] as char);
@@ -26,9 +20,6 @@ fn push_escaped(out: &mut String, byte: u8) {
 /// and species-qualified symbols such as `homo_sapiens:BRCA2` are rejected by
 /// the API if the colon arrives percent-encoded. `.` is unreserved, so the `..`
 /// range syntax survives without special handling.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 const fn is_path_safe(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b':')
 }
@@ -37,17 +28,11 @@ const fn is_path_safe(b: u8) -> bool {
 ///
 /// This is the unreserved set only. Note `:` is *not* included: query strings
 /// follow `application/x-www-form-urlencoded`, matching Go's `url.QueryEscape`.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 const fn is_form_safe(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~')
 }
 
 /// Percent-encodes a URL path segment, preserving colons.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn encode_path_segment(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
@@ -61,9 +46,6 @@ pub(crate) fn encode_path_segment(s: &str) -> String {
 }
 
 /// Percent-encodes a query-string key or value, encoding space as `+`.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn encode_form_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
@@ -81,9 +63,6 @@ pub(crate) fn encode_form_component(s: &str) -> String {
 /// Returns [`Error::MissingParam`] if a placeholder has no corresponding entry
 /// in `params`, or if its value is empty — matching the Go port, which treats an
 /// empty value as absent.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn resolve_path(template: &str, params: &[(&str, &str)]) -> Result<String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
@@ -117,9 +96,6 @@ pub(crate) fn resolve_path(template: &str, params: &[(&str, &str)]) -> Result<St
 ///
 /// Byte-for-byte compatible with Go's `url.Values.Encode()`, which keeps the
 /// URLs produced by this crate and by `goensemblrest` identical.
-// Consumed by request execution starting in Task 9; until then nothing
-// outside `#[cfg(test)]` calls it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn encode_query(pairs: &[(&str, &str)]) -> String {
     if pairs.is_empty() {
         return String::new();
