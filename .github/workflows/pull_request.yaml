@@ -1,0 +1,61 @@
+name: Pull Request
+
+on:
+  pull_request:
+    paths: ['**.rs', 'Cargo.toml', '.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['**.rs', 'Cargo.toml', '.github/workflows/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98'
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Verify the dependency budget
+        run: |
+          direct=$(cargo tree --depth 1 --prefix none | tail -n +2 | grep -c . || true)
+          echo "direct dependencies: $direct"
+          test "$direct" -eq 3 || { echo "expected exactly 3 direct dependencies"; exit 1; }
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Doctests
+        run: cargo test --doc
+
+      - name: Build the example
+        run: cargo build --examples
+
+  live:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98'
+      - uses: Swatinem/rust-cache@v2
+      - name: Live smoke tests
+        env:
+          ENSEMBL_LIVE_TESTS: '1'
+        run: cargo test --test live -- --ignored
