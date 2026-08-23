@@ -33,25 +33,57 @@ pub(crate) fn is_transient(status: u16, message: &str) -> bool {
     false
 }
 
+/// Sets `name` to exactly one value on `r`, replacing any prior occurrence.
+///
+/// `ureq`'s builder-level `.header()` always *appends* to the underlying
+/// `HeaderMap` (it calls `HeaderMap::append`, never `insert`), which matches
+/// Go's `Header.Add`. The fixed headers and per-request
+/// [`crate::RequestOption::Header`]s need Go's `Header.Set` semantics
+/// instead: a caller-set `Accept` must not survive alongside a
+/// `content_type(...)` override, and this crate's own `User-Agent` must
+/// always win over a caller-supplied one. `HeaderMap::insert`, reached via
+/// `headers_mut()`, gives real replace semantics — it drops every existing
+/// value under `name` and stores just the new one.
+fn set_header<T>(
+    r: &mut ureq::RequestBuilder<T>,
+    name: &str,
+    value: &str,
+) -> std::result::Result<(), ureq::Error> {
+    let Some(map) = r.headers_mut() else {
+        // The builder already captured an earlier header error (invalid
+        // name/value from a prior `.header()` call); that error surfaces
+        // when `.call()`/`.send()` runs, so there is nothing to insert into.
+        return Ok(());
+    };
+    let name = ureq::http::HeaderName::try_from(name).map_err(ureq::http::Error::from)?;
+    let value = ureq::http::HeaderValue::try_from(value).map_err(ureq::http::Error::from)?;
+    map.insert(name, value);
+    Ok(())
+}
+
 /// Applies client headers, per-request headers, then the fixed headers.
 ///
-/// A macro rather than a function because `ureq`'s builder is a different type
-/// for requests with and without a body.
-macro_rules! apply_headers {
-    ($req:expr, $client:expr, $cfg:expr) => {{
-        let mut r = $req;
-        for (k, v) in &$client.inner.headers {
-            r = r.header(k, v);
-        }
-        for (k, v) in &$cfg.headers {
-            r = r.header(*k, *v);
-        }
-        // Applied last so they win over caller-supplied values, matching Go.
-        r = r.header("User-Agent", &$client.inner.user_agent);
-        r = r.header("Content-Type", $cfg.content_type);
-        r = r.header("Accept", $cfg.content_type);
-        r
-    }};
+/// Client-level headers accumulate (Go's `Header.Add`); per-request and
+/// fixed headers each replace any prior value under the same name (Go's
+/// `Header.Set`), so the fixed trio always wins regardless of call order.
+/// Generic over the `ureq` builder typestate so one function serves both
+/// `RequestBuilder<WithoutBody>` (GET) and `RequestBuilder<WithBody>` (POST).
+fn apply_headers<T>(
+    mut r: ureq::RequestBuilder<T>,
+    client: &Client,
+    cfg: &RequestConfig<'_>,
+) -> std::result::Result<ureq::RequestBuilder<T>, ureq::Error> {
+    for (k, v) in &client.inner.headers {
+        r = r.header(k, v);
+    }
+    for (k, v) in &cfg.headers {
+        set_header(&mut r, k, v)?;
+    }
+    // Applied last so they win over caller-supplied values, matching Go.
+    set_header(&mut r, "User-Agent", &client.inner.user_agent)?;
+    set_header(&mut r, "Content-Type", cfg.content_type)?;
+    set_header(&mut r, "Accept", cfg.content_type)?;
+    Ok(r)
 }
 
 impl Client {
@@ -68,14 +100,21 @@ impl Client {
         body: Option<&[u8]>,
     ) -> std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error> {
         match method {
-            Method::Get => apply_headers!(self.inner.agent.get(url), self, cfg).call(),
+            Method::Get => apply_headers(self.inner.agent.get(url), self, cfg)?.call(),
             Method::Post => {
-                apply_headers!(self.inner.agent.post(url), self, cfg).send(body.unwrap_or(&[]))
+                apply_headers(self.inner.agent.post(url), self, cfg)?.send(body.unwrap_or(&[]))
             }
         }
     }
 
     /// Computes how long to wait before the next attempt.
+    ///
+    /// `api.rate_limit.retry_after` is sticky by design: `RateLimiter::update_from_headers`
+    /// only overwrites fields a response actually sent, so once a 429 supplies
+    /// `Retry-After`, a later attempt's error (e.g. a 503 with no such header)
+    /// still carries it and this still sleeps for it. That looks like a bug but
+    /// isn't one — `goensemblrest/ratelimit.go` behaves identically, so this is a
+    /// faithful port, not a divergence to "fix".
     fn backoff(&self, attempt: u32, last: Option<&Error>) -> Duration {
         if let Some(Error::Api(api)) = last
             && let Some(retry_after) = api.rate_limit.retry_after

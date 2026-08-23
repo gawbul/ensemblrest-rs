@@ -99,6 +99,91 @@ fn headers_and_content_type_are_applied() {
 }
 
 #[test]
+fn conflicting_headers_replace_rather_than_accumulate() {
+    // `ureq`'s `.header()` appends to the underlying HeaderMap; without an
+    // explicit replace step, a caller-supplied header of the same name as one
+    // of the fixed headers would sit alongside it on the wire instead of
+    // losing, and `User-Agent` is a singleton per RFC 9110 so recipients take
+    // the FIRST value — meaning an unreplaced duplicate would let the wrong
+    // side win silently.
+    let server = MockServer::with_json(200, "{}");
+    let c = Client::builder()
+        .base_url(server.base_url())
+        .user_agent("client-ua")
+        .header("Accept", "application/json")
+        .build()
+        .unwrap();
+
+    c.call_raw(
+        Method::Get,
+        "/sequence/id/{{id}}",
+        &[("id", "ENSG01")],
+        None,
+        &[
+            header("User-Agent", "evil-ua"),
+            content_type("text/x-fasta"),
+        ],
+    )
+    .unwrap();
+
+    let req = server.only_request();
+
+    // The client's configured User-Agent must win over a per-request override.
+    assert_eq!(req.header("user-agent"), Some("client-ua"));
+    assert_eq!(
+        req.headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+            .count(),
+        1,
+        "exactly one User-Agent header must reach the wire, got {:?}",
+        req.headers
+    );
+
+    // content_type(...) must fully replace a client-level Accept, not merge
+    // with it into a comma-joined value the server could misinterpret.
+    assert_eq!(req.header("accept"), Some("text/x-fasta"));
+    assert_eq!(
+        req.headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("accept"))
+            .count(),
+        1,
+        "exactly one Accept header must reach the wire, got {:?}",
+        req.headers
+    );
+}
+
+#[test]
+fn retries_do_not_bypass_the_rate_limiter() {
+    // `wall_time_for_test()` sets a window so wide (1000 reqs / 5ms) that the
+    // limiter never throttles, so no other test in this file would fail if
+    // `limiter.wait()` were hoisted out of the retry loop. Pin it directly
+    // with a real one-request-per-window limit instead.
+    let server = MockServer::start(vec![
+        MockResponse::json(503, r#"{"error":"down"}"#),
+        MockResponse::json(200, "{}"),
+    ]);
+    let c = Client::builder()
+        .base_url(server.base_url())
+        .max_attempts(5)
+        .rate_limit(1, Duration::from_millis(60))
+        .build()
+        .unwrap();
+
+    let start = std::time::Instant::now();
+    let resp = c.call_raw(Method::Get, "/a", &[], None, &[]).unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(server.request_count(), 2);
+    assert!(
+        start.elapsed() >= Duration::from_millis(60),
+        "the retried attempt must still wait on the rate limiter, elapsed {:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
 fn post_sends_a_json_body() {
     let server = MockServer::with_json(200, "[]");
     let c = client(&server, 5);
