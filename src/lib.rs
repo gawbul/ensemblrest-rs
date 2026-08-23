@@ -74,6 +74,8 @@ pub(crate) mod request;
 
 pub mod endpoints;
 
+pub mod types;
+
 #[cfg(test)]
 mod tests {
     use super::*;
