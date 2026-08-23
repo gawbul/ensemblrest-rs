@@ -1,8 +1,81 @@
 //! A Rust client library for the [Ensembl REST API](https://rest.ensembl.org/).
 //!
 //! This crate is a port of [`goensemblrest`](https://github.com/gawbul/goensemblrest),
-//! which is itself a port of [`pyEnsemblRest`](https://github.com/gawbul/pyEnsemblRest).
-
+//! itself a port of [`pyEnsemblRest`](https://github.com/gawbul/pyEnsemblRest), and
+//! covers all 106 endpoints.
+//!
+//! # Quickstart
+//!
+//! ```no_run
+//! use ensemblrest::types::LookupRecord;
+//! use ensemblrest::Client;
+//!
+//! # fn main() -> ensemblrest::Result<()> {
+//! let client = Client::new()?;
+//! let braf: LookupRecord = client.get_lookup_by_id("ENSG00000157764", &[])?.json()?;
+//! println!("{} is a {}", braf.display_name, braf.biotype);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Decoding responses
+//!
+//! Every endpoint method returns a [`Response`]. Decode it with [`Response::json`]
+//! for JSON, or [`Response::text`] for the formats Ensembl serves as text.
+//!
+//! ```no_run
+//! use ensemblrest::options::content_type;
+//! use ensemblrest::Client;
+//!
+//! # fn main() -> ensemblrest::Result<()> {
+//! let client = Client::new()?;
+//! let fasta = client
+//!     .get_sequence_by_id("ENSG00000157764", &[content_type("text/x-fasta")])?
+//!     .text()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `json` accepts any [`serde::Deserialize`] type, so endpoints without a model in
+//! [`types`] still work via [`serde_json::Value`].
+//!
+//! # Configuration
+//!
+//! ```no_run
+//! use ensemblrest::Client;
+//! use std::time::Duration;
+//!
+//! # fn main() -> ensemblrest::Result<()> {
+//! let client = Client::builder()
+//!     .timeout(Duration::from_secs(30))
+//!     .rate_limit(15, Duration::from_secs(1))
+//!     .max_attempts(5)
+//!     .user_agent("my-tool/1.0")
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`Client`] is cheap to clone and shares one rate limiter and connection pool
+//! across clones, so a cloned client observes one global rate limit.
+//!
+//! # Errors
+//!
+//! ```no_run
+//! use ensemblrest::{ApiErrorKind, Client};
+//!
+//! # fn main() -> ensemblrest::Result<()> {
+//! let client = Client::new()?;
+//! match client.get_lookup_by_id("NOT_A_REAL_ID", &[]) {
+//!     Ok(response) => println!("{}", response.status()),
+//!     Err(e) if e.is_not_found() => println!("no such identifier"),
+//!     Err(e) if e.api_kind() == Some(ApiErrorKind::RateLimit) => println!("rate limited"),
+//!     Err(e) => println!("failed: {e}"),
+//! }
+//! # Ok(())
+//! # }
+//! ```
+#![doc(html_root_url = "https://docs.rs/ensemblrest")]
 // `Error` is ~136 bytes, dominated by ApiError's String, Vec<u8> and RateLimitInfo.
 // Every fallible function in this crate accompanies a network round trip, so the
 // cost of moving it is immaterial and boxing it would change a public API shape
