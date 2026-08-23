@@ -76,6 +76,14 @@ pub mod endpoints;
 
 pub mod types;
 
+mod archive;
+mod comparative;
+mod lookup;
+mod mapping;
+mod overlap;
+mod sequence;
+mod xrefs;
+
 #[cfg(test)]
 mod tests {
     use super::*;
