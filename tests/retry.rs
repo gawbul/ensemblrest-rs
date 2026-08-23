@@ -160,6 +160,15 @@ fn retries_do_not_bypass_the_rate_limiter() {
     // limiter never throttles, so no other test in this file would fail if
     // `limiter.wait()` were hoisted out of the retry loop. Pin it directly
     // with a real one-request-per-window limit instead.
+    //
+    // `rate_limit()` sets both the limiter's window AND the backoff base
+    // (they're the same `wallTime` field in the Go port), so naively using
+    // `rate_limit(1, Duration::from_millis(60))` alone would make backoff's
+    // `wall_time * 2 * attempt` sleep 120ms on its own -- enough to clear a
+    // ">= 60ms" assertion with the limiter contributing nothing observable.
+    // `backoff_wall_time_for_test` decouples them: the limiter keeps its real
+    // 300ms window, while the backoff base shrinks to near-zero, so the
+    // limiter is the only thing that can produce the observed delay.
     let server = MockServer::start(vec![
         MockResponse::json(503, r#"{"error":"down"}"#),
         MockResponse::json(200, "{}"),
@@ -167,7 +176,8 @@ fn retries_do_not_bypass_the_rate_limiter() {
     let c = Client::builder()
         .base_url(server.base_url())
         .max_attempts(5)
-        .rate_limit(1, Duration::from_millis(60))
+        .rate_limit(1, Duration::from_millis(300))
+        .backoff_wall_time_for_test(Duration::from_millis(1))
         .build()
         .unwrap();
 
@@ -177,7 +187,7 @@ fn retries_do_not_bypass_the_rate_limiter() {
     assert_eq!(resp.status(), 200);
     assert_eq!(server.request_count(), 2);
     assert!(
-        start.elapsed() >= Duration::from_millis(60),
+        start.elapsed() >= Duration::from_millis(300),
         "the retried attempt must still wait on the rate limiter, elapsed {:?}",
         start.elapsed()
     );
