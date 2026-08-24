@@ -12,6 +12,16 @@ readme = "README.md"
 keywords = ["ensembl", "bioinformatics", "genomics", "rest", "api"]
 categories = ["api-bindings", "science"]
 
+# Repo tooling and internal build documents are not useful to consumers of the
+# library and would otherwise be published to crates.io and docs.rs.
+exclude = [
+    "docs/**",
+    ".github/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "Makefile",
+]
+
 [dependencies]
 ureq = "3.4"
 serde = { version = "1", features = ["derive"] }
