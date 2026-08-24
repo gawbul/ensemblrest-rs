@@ -129,10 +129,34 @@ impl MockServer {
                 if thread_stop.load(Ordering::SeqCst) {
                     break;
                 }
-                let Ok(stream) = stream else { break };
+                let Ok(mut stream) = stream else { break };
                 let scripted = queue.pop_front();
-                if let Ok(req) = serve_one(stream, scripted, timeout) {
-                    thread_requests.lock().expect("requests lock").push(req);
+                // Record the request BEFORE sending any response bytes. The client's
+                // `call(...)` returns as soon as it observes the response, at which point
+                // a test may immediately call `only_request()`/`request_count()`. If we
+                // recorded after writing the response, the test thread could win that race
+                // and observe zero requests even though one was fully served (see the race
+                // this function's doc comment describes).
+                match read_request(&stream, timeout) {
+                    Ok(ReadOutcome::Request(req)) => {
+                        thread_requests.lock().expect("requests lock").push(req);
+                        let response = scripted.unwrap_or_else(|| MockResponse {
+                            status: 500,
+                            headers: vec![("Content-Type".into(), "application/json".into())],
+                            body: br#"{"error":"mock server: no scripted response left"}"#.to_vec(),
+                        });
+                        let _ = send_response(&mut stream, &response);
+                    }
+                    Ok(ReadOutcome::BodyTimeout) => {
+                        // The request line/headers arrived but the body did not within the
+                        // timeout. Answer with a 408 to prove the timeout fired, but do NOT
+                        // record: the client never finished sending a request.
+                        let _ = send_timeout_response(&mut stream);
+                    }
+                    Err(_) => {
+                        // Failed before a full request line/headers arrived (e.g. connection
+                        // closed or timed out with no data). Nothing to record or respond to.
+                    }
                 }
             }
         });
@@ -191,14 +215,24 @@ impl Drop for MockServer {
     }
 }
 
-fn serve_one(
-    mut stream: TcpStream,
-    scripted: Option<MockResponse>,
-    timeout: Duration,
-) -> std::io::Result<RecordedRequest> {
+/// The outcome of reading a request: either a complete request, or a body that
+/// didn't arrive within the timeout (headers were fine, so we still owe the
+/// client a response, just not a recorded one).
+enum ReadOutcome {
+    Request(RecordedRequest),
+    BodyTimeout,
+}
+
+/// Reads and parses one HTTP request from `stream`, without sending a response.
+///
+/// Splitting the read out from the response write lets the caller record the
+/// request while still holding the only reference to it, before any response
+/// bytes reach the client — see the comment at the call site for why that
+/// ordering matters.
+fn read_request(stream: &TcpStream, timeout: Duration) -> std::io::Result<ReadOutcome> {
     // Set read and write timeouts to prevent hanging on stalled clients. This converts
     // a silent hang into a fast failure, and ensures MockServer::drop's join() can
-    // complete even if serve_one is mid-request.
+    // complete even if a request is mid-flight.
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
 
@@ -231,29 +265,23 @@ fn serve_one(
     }
 
     let mut body = vec![0u8; content_length];
-    let body_read_failed = if content_length > 0 {
-        reader.read_exact(&mut body).is_err()
-    } else {
-        false
-    };
+    if content_length > 0 && reader.read_exact(&mut body).is_err() {
+        // Body read timed out or failed. The headers were fine, so this is a
+        // stalled-body case, not a dead connection: the caller should still
+        // answer with a 408, just without recording anything.
+        return Ok(ReadOutcome::BodyTimeout);
+    }
 
-    // If body read timed out or failed, send a 408 timeout response.
-    // This proves the timeout mechanism works: the server sent a response
-    // only because the timeout fired, not because the stream dropped.
-    let response = if body_read_failed {
-        MockResponse {
-            status: 408,
-            headers: vec![("Content-Type".into(), "application/json".into())],
-            body: br#"{"error":"request timeout"}"#.to_vec(),
-        }
-    } else {
-        scripted.unwrap_or_else(|| MockResponse {
-            status: 500,
-            headers: vec![("Content-Type".into(), "application/json".into())],
-            body: br#"{"error":"mock server: no scripted response left"}"#.to_vec(),
-        })
-    };
+    Ok(ReadOutcome::Request(RecordedRequest {
+        method,
+        target,
+        headers,
+        body,
+    }))
+}
 
+/// Writes `response` to `stream` as a complete HTTP/1.1 response.
+fn send_response(stream: &mut TcpStream, response: &MockResponse) -> std::io::Result<()> {
     let mut head = format!(
         "HTTP/1.1 {} {}\r\n",
         response.status,
@@ -268,23 +296,19 @@ fn serve_one(
 
     stream.write_all(head.as_bytes())?;
     stream.write_all(&response.body)?;
-    stream.flush()?;
+    stream.flush()
+}
 
-    // If body read timed out, return an error so the request is not recorded.
-    // The response was still sent, proving the timeout worked.
-    if body_read_failed {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "request body read timeout",
-        ));
-    }
-
-    Ok(RecordedRequest {
-        method,
-        target,
-        headers,
-        body,
-    })
+/// Sends the 408 that proves the body-read timeout fired.
+fn send_timeout_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    send_response(
+        stream,
+        &MockResponse {
+            status: 408,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: br#"{"error":"request timeout"}"#.to_vec(),
+        },
+    )
 }
 
 fn reason(status: u16) -> &'static str {
