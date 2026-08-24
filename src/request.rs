@@ -22,7 +22,7 @@ const TRANSIENT_BODY_MARKERS: [&str; 3] = [
 /// Upper bound, in seconds, on a server-supplied `Retry-After` this client
 /// will honour.
 ///
-/// This does two jobs. **Safety:** `RateLimiter::update_from_headers` parses
+/// This does two jobs. **Safety:** `ratelimit::parse_headers` parses
 /// `Retry-After` with `f64::from_str`, which happily accepts `inf`, values
 /// that overflow to infinity (`1e400`) and values far beyond `u64::MAX` --
 /// every one of which makes `Duration::from_secs_f64` *panic*. A garbled or
