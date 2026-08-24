@@ -54,7 +54,13 @@ impl Response {
         self.content_type.as_deref()
     }
 
-    /// Rate-limit telemetry from this response's headers.
+    /// Rate-limit telemetry parsed from **this response's own headers**.
+    ///
+    /// A field the server omitted on this response is `None`; it does not
+    /// inherit a value from an earlier response, and no other thread sharing
+    /// the [`Client`](crate::Client) can write into it. For the running,
+    /// sticky, client-wide view — where the last value seen for each field
+    /// persists — use [`Client::rate_limit`](crate::Client::rate_limit).
     pub fn rate_limit(&self) -> &RateLimitInfo {
         &self.rate_limit
     }

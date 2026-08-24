@@ -22,8 +22,18 @@ pub enum Method {
 impl crate::Client {
     /// Executes a raw request against an explicit path template.
     ///
-    /// Prefer the typed endpoint methods; this exists for tests and for callers
-    /// working with paths not yet in the endpoint table.
+    /// Prefer the typed endpoint methods, or [`Client::call`] for an endpoint
+    /// that is in the table; this exists for this crate's own tests and for
+    /// callers working with paths not yet in the endpoint table. It is
+    /// `#[doc(hidden)]` and outside the crate's semver promise, and the design
+    /// spec does not describe it.
+    ///
+    /// Note the one behavioural difference from [`Client::call`]: with no
+    /// endpoint entry there is no `spec.content_type` to start from, so this
+    /// defaults to [`crate::DEFAULT_CONTENT_TYPE`]. Any endpoint whose table
+    /// entry names a different content type must be given one explicitly via
+    /// [`crate::content_type`] here.
+    #[doc(hidden)]
     pub fn call_raw(
         &self,
         method: Method,

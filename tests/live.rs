@@ -68,7 +68,8 @@ fn sequence_can_be_fetched_as_fasta() {
     assert!(
         fasta.starts_with('>'),
         "expected FASTA, got: {}",
-        &fasta[..fasta.len().min(80)]
+        // Truncating by bytes would panic mid-UTF-8 on a non-ASCII error page.
+        fasta.chars().take(80).collect::<String>()
     );
 }
 

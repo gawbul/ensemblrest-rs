@@ -41,7 +41,15 @@ pub struct ApiError {
     pub status: u16,
     /// The error message, extracted from the body where possible.
     pub message: String,
-    /// Rate-limit telemetry from the response headers.
+    /// Rate-limit telemetry parsed from **this response's own headers**.
+    ///
+    /// Response-specific, exactly like
+    /// [`Response::rate_limit`](crate::Response::rate_limit): a field the
+    /// failing response omitted is `None` rather than inherited from an
+    /// earlier response or from another thread sharing the client. On a 429
+    /// this is where `retry_after` comes from. The retry loop's own backoff
+    /// deliberately consults the sticky client-wide value instead — see
+    /// [`crate::Client::rate_limit`].
     pub rate_limit: RateLimitInfo,
     /// The raw response body.
     pub body: Vec<u8>,

@@ -70,7 +70,15 @@ impl Client {
         self.inner.max_attempts
     }
 
-    /// The most recent rate-limit telemetry seen from the API.
+    /// The running, client-wide rate-limit telemetry.
+    ///
+    /// This is a merged view: each field holds the last value *any* response
+    /// through this client supplied, so a field stays populated across
+    /// responses that omit it. Because clones share one `Inner`, a request
+    /// made on another thread updates what this returns. That stickiness is a
+    /// faithful port of `goensemblrest/ratelimit.go`. For what a single
+    /// response actually sent, use
+    /// [`Response::rate_limit`](crate::Response::rate_limit).
     pub fn rate_limit(&self) -> RateLimitInfo {
         self.inner.limiter.info()
     }
@@ -83,11 +91,6 @@ pub struct ClientBuilder {
     timeout: Duration,
     reqs_per_sec: u32,
     wall_time: Duration,
-    // `None` except in tests: `build()` falls back to `wall_time` for the
-    // backoff base when this is unset, which is what keeps `rate_limit()`'s
-    // single argument driving both the limiter's window and the backoff base,
-    // faithfully matching the Go port. See `backoff_wall_time_for_test`.
-    backoff_wall_time: Option<Duration>,
     max_attempts: u32,
     user_agent: String,
     headers: Vec<(String, String)>,
@@ -102,7 +105,6 @@ impl Default for ClientBuilder {
             timeout: DEFAULT_TIMEOUT,
             reqs_per_sec: DEFAULT_REQS_PER_SEC,
             wall_time: DEFAULT_WALL_TIME,
-            backoff_wall_time: None,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             user_agent: default_user_agent(),
             headers: Vec::new(),
@@ -157,37 +159,6 @@ impl ClientBuilder {
     /// responses exceed.
     pub fn max_response_bytes(mut self, bytes: u64) -> Self {
         self.max_response_bytes = bytes;
-        self
-    }
-
-    /// Shrinks the rate-limit window so retry backoff is fast in tests.
-    ///
-    /// Backoff is `attempt * wall_time * 2`, so a 5 ms window keeps a
-    /// four-retry sequence under 100 ms.
-    #[doc(hidden)]
-    pub fn wall_time_for_test(self) -> Self {
-        self.rate_limit(1000, Duration::from_millis(5))
-    }
-
-    /// Sets only the backoff base, leaving the rate limiter's own window untouched.
-    ///
-    /// `rate_limit()` sets both the limiter's window and the backoff base
-    /// (`Inner.wall_time`) from a single argument, faithfully matching the Go
-    /// port where `wallTime` genuinely serves both roles: `build()` passes
-    /// `self.wall_time` to *both* `Inner.wall_time` and `RateLimiter::new`.
-    /// That coupling makes it impossible to test the rate limiter and the
-    /// backoff delay as independent sources of a request's elapsed time --
-    /// overwriting `self.wall_time` directly (as an earlier version of this
-    /// method did) would also shrink the limiter's window, silently
-    /// defeating the very test it exists to support. This instead stores the
-    /// override separately; `build()` uses it only for `Inner.wall_time`
-    /// while `RateLimiter::new` still gets the real `self.wall_time` set by
-    /// `rate_limit()`, so a test can pin a real limiter window and shrink
-    /// only backoff, leaving the limiter as the sole possible source of
-    /// observed delay.
-    #[doc(hidden)]
-    pub fn backoff_wall_time_for_test(mut self, wall_time: Duration) -> Self {
-        self.backoff_wall_time = Some(wall_time);
         self
     }
 
@@ -248,12 +219,10 @@ impl ClientBuilder {
                 .into()
         });
 
-        // The limiter always gets the window `rate_limit()` set. The backoff
-        // base defaults to that same value -- matching the Go port, where one
-        // `wallTime` field serves both roles -- unless a test overrode it
-        // separately via `backoff_wall_time_for_test`.
+        // One `wall_time` serves both roles, exactly as the Go port's single
+        // `wallTime` field does: it is the limiter's sliding window *and* the
+        // base of the computed retry backoff (`attempt * wall_time * 2`).
         let limiter = RateLimiter::new(self.reqs_per_sec, self.wall_time);
-        let backoff_wall_time = self.backoff_wall_time.unwrap_or(self.wall_time);
 
         Ok(Client {
             inner: Arc::new(Inner {
@@ -262,7 +231,7 @@ impl ClientBuilder {
                 user_agent: self.user_agent,
                 headers: self.headers,
                 max_attempts: self.max_attempts,
-                wall_time: backoff_wall_time,
+                wall_time: self.wall_time,
                 max_response_bytes: self.max_response_bytes,
                 limiter,
             }),

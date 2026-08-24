@@ -59,10 +59,18 @@ let client = Client::builder()
     .rate_limit(15, Duration::from_secs(1))
     .max_attempts(5)
     .user_agent("my-tool/1.0")
+    .max_response_bytes(256 * 1024 * 1024)
     .build()?;
 # Ok(())
 # }
 ```
+
+`max_response_bytes` is the one builder option with no counterpart in the Go port.
+`ureq` refuses response bodies over 10 MiB by default, which several Ensembl endpoints
+exceed routinely -- large `overlap` result sets, multi-region `sequence` POSTs and
+`alignment/region` blocks. This crate raises the default to 100 MiB
+(`DEFAULT_MAX_RESPONSE_BYTES`); raise it further, as above, if you hit
+`Error::Transport` on a large query, or lower it to bound memory use.
 
 `Client` is cheap to clone and shares one rate limiter and connection pool across
 clones, so a cloned client observes one global rate limit.

@@ -179,9 +179,16 @@ cap; without this the port would fail on exactly the large queries users care ab
 every method, using it to abort mid-sleep in the limiter and in retry backoff. Blocking
 Rust has no equivalent; timeouts are configured on the client and enforced by `ureq`.
 Accepted trade-off: a caller cannot abort a request that is sitting in a rate-limiter or
-backoff sleep — worst case roughly 20 s at default settings. Should this become a real
-problem, an opt-in `Cancel` handle (`Arc<AtomicBool>`) checked at sleep boundaries can
-be added later as a `RequestOption` without breaking any signature.
+backoff sleep. That wait is bounded on both paths. The *computed* backoff is
+`attempt * wall_time * 2`, roughly 20 s in total at default settings (5 attempts,
+`wall_time` 1 s). An *honoured* `Retry-After` is server-dictated and was therefore
+unbounded — and, since `f64::from_str` accepts `inf` and overflowing literals such as
+`1e400`, a garbled header could also make `Duration::from_secs_f64` panic. `backoff()`
+now clamps it to `MAX_RETRY_AFTER_SECS` (300 s), so the worst case per sleep is 300 s
+and the worst case for a whole call is `(max_attempts - 1) * 300 s`, with no reachable
+panic. Should this become a real problem, an opt-in `Cancel` handle (`Arc<AtomicBool>`)
+checked at sleep boundaries can be added later as a `RequestOption` without breaking any
+signature.
 
 ---
 
@@ -265,14 +272,16 @@ pub struct RateLimitInfo {
 ## 7. Errors (`error.rs`)
 
 ```rust
+#[non_exhaustive]
 pub enum Error {
     Api(ApiError),
     MaxRetries { attempts: u32, last: Box<Error> },
     MissingParam(String),
     UnknownEndpoint(String),
-    Transport(ureq::Error),
+    Transport(Box<ureq::Error>),
     Decode(serde_json::Error),
     InvalidConfig(String),
+    InvalidUtf8(std::string::FromUtf8Error),
 }
 
 pub struct ApiError {
@@ -287,6 +296,15 @@ pub enum ApiErrorKind {
     InternalServer, ServiceUnavailable, Other(u16),
 }
 ```
+
+Two refinements landed during implementation. `Transport` boxes its `ureq::Error`:
+unboxed it is by far the largest variant (`ureq::Error` is ~150 bytes on its own) and
+it would set the size of every `Result` in the crate, including the overwhelmingly
+common success path. And an eighth variant, `InvalidUtf8(FromUtf8Error)`, backs
+`Response::text()`: the text formats Ensembl serves (`text/x-fasta`, `text/x-gff3`,
+`text/x-nh`, `text/x-phyloxml`) are decoded as UTF-8, and a truncated or mislabelled
+body must surface as an error rather than a panic or a lossy replacement. Folding it
+into `Decode` would have been a lie -- `serde_json::Error` cannot represent it.
 
 Go's sentinel-plus-`errors.Is` pattern maps onto `Error::api_kind() -> Option<ApiErrorKind>`
 with `is_not_found()`-style conveniences. `impl std::error::Error::source()` chains
@@ -435,8 +453,19 @@ Mapping rules:
 |---|---|
 | `*float64`, `*int`, `*bool` | `Option<f64>`, `Option<i64>`, `Option<bool>` |
 | `json.RawMessage` | `serde_json::Value` |
+| `[]json.RawMessage` | `Vec<serde_json::Value>` |
 | `[]string` | `Vec<String>` |
 | `omitempty` scalar | plain field under container-level `#[serde(default)]` |
+
+**Stricter than Go: `[]json.RawMessage` -> `Vec<Value>`.** Go defers all parsing of a
+`json.RawMessage` field, so a wire value of the wrong *shape* -- an object, or a bare
+string, where the model says list -- is stored verbatim and only fails if and when the
+caller parses it. `Vec<Value>` decides at decode time: a non-array in one of those
+fields fails the whole `Response::json()` call, not just that field. This is documented
+rather than changed. Loosening it to a plain `Value` would push the shape check onto
+every caller of every affected model, which is the ergonomic cost `types.rs` exists to
+absorb; if Ensembl is ever observed sending a non-array there, `Response::json::<Value>()`
+remains the escape hatch.
 
 `#[serde(default)]` on every container is mandatory, not cosmetic: Ensembl's response
 shape varies with query parameters, and a missing field must deserialize to a default
@@ -521,6 +550,9 @@ catalog; `examples/basic.rs`; MIT `LICENSE` (Copyright (c) 2020-2026 Steve Moss)
 | 10 | `LookupRecord.Extra` is dead (`json:"-"`) | `#[serde(flatten)] extra` | Fixes a latent bug rather than copying it |
 | 11 | `make test-race` | Folded into `make test` | `Send`/`Sync` are compile-time |
 | 12 | No publish step | `cargo publish` on tag | crates.io has no module proxy |
+| 13 | GA4GH searches take an opaque `bodyData any` | Typed per-endpoint `Ga4gh*Query` structs | Named fields prevent the silent argument transposition the opaque/positional form allows (three adjacent `Option<&str>`s on `/ga4gh/references/search`; `referenceId`/`referenceName` on `/ga4gh/variantannotations/search`). `Client::call` remains available for full control |
+| 14 | `request.go` retries a body-read error (`continue` on `readErr`) | Returns `Error::Transport` immediately | A truncated body is not distinguishable from a server-side fault, but the request has already been counted against the rate limit and may not be idempotent; surfacing it lets the caller decide. Kept deliberately -- declared so it is not rediscovered as a bug |
+| 15 | `Retry-After` honoured verbatim | Clamped to `MAX_RETRY_AFTER_SECS` (300 s) | `Duration::from_secs_f64` panics on the infinities `f64::from_str` accepts from a header (`inf`, `1e400`), where Go's `time.Duration` conversion merely saturates; the clamp also bounds the un-cancellable sleep (see divergence 3) |
 
 ---
 

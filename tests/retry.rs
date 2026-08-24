@@ -10,11 +10,18 @@ use ensemblrest::{ApiErrorKind, Client, Error};
 use std::time::Duration;
 
 /// A client pointed at `server` with backoff short enough for a fast test.
+///
+/// `rate_limit()` sets the limiter's sliding window *and* the computed-backoff
+/// base (`attempt * wall_time * 2`) from one argument, matching the Go port's
+/// single `wallTime` field. A 5 ms window therefore keeps a four-retry
+/// sequence under 100 ms, and 1000 requests per window means the limiter
+/// itself never throttles -- so any delay these tests observe comes from
+/// backoff, not from rate limiting.
 fn client(server: &MockServer, max_attempts: u32) -> Client {
     Client::builder()
         .base_url(server.base_url())
         .max_attempts(max_attempts)
-        .wall_time_for_test()
+        .rate_limit(1000, Duration::from_millis(5))
         .build()
         .unwrap()
 }
@@ -156,28 +163,27 @@ fn conflicting_headers_replace_rather_than_accumulate() {
 
 #[test]
 fn retries_do_not_bypass_the_rate_limiter() {
-    // `wall_time_for_test()` sets a window so wide (1000 reqs / 5ms) that the
-    // limiter never throttles, so no other test in this file would fail if
+    // The `client()` helper above sets a window so wide (1000 reqs / 5ms) that
+    // the limiter never throttles, so no other test in this file would fail if
     // `limiter.wait()` were hoisted out of the retry loop. Pin it directly
     // with a real one-request-per-window limit instead.
     //
-    // `rate_limit()` sets both the limiter's window AND the backoff base
-    // (they're the same `wallTime` field in the Go port), so naively using
-    // `rate_limit(1, Duration::from_millis(60))` alone would make backoff's
-    // `wall_time * 2 * attempt` sleep 120ms on its own -- enough to clear a
-    // ">= 60ms" assertion with the limiter contributing nothing observable.
-    // `backoff_wall_time_for_test` decouples them: the limiter keeps its real
-    // 300ms window, while the backoff base shrinks to near-zero, so the
-    // limiter is the only thing that can produce the observed delay.
+    // Backoff has to be excluded as the source of the observed delay, and
+    // `rate_limit()` deliberately cannot do that: it sets the limiter's window
+    // AND the computed-backoff base (one `wallTime` field in the Go port), so
+    // `rate_limit(1, 300ms)` alone would make backoff sleep 600ms on its own
+    // and the limiter would contribute nothing observable. A 429 sidesteps the
+    // coupling using nothing but public API: an honoured `Retry-After`
+    // replaces the computed backoff outright, so backoff here is a flat 1ms
+    // and the limiter is the only thing that can account for ~300ms.
     let server = MockServer::start(vec![
-        MockResponse::json(503, r#"{"error":"down"}"#),
+        MockResponse::json(429, r#"{"error":"slow down"}"#).with_header("Retry-After", "0.001"),
         MockResponse::json(200, "{}"),
     ]);
     let c = Client::builder()
         .base_url(server.base_url())
         .max_attempts(5)
         .rate_limit(1, Duration::from_millis(300))
-        .backoff_wall_time_for_test(Duration::from_millis(1))
         .build()
         .unwrap();
 
@@ -344,4 +350,104 @@ fn non_json_bodies_come_back_through_text() {
 
     assert_eq!(resp.text().unwrap(), ">ENSG00000157764\nACGT\n");
     assert_eq!(resp.content_type(), Some("text/x-fasta"));
+}
+
+#[test]
+fn a_garbled_retry_after_does_not_panic_the_caller() {
+    // `Retry-After: 1e400` parses as `f64::INFINITY`, and
+    // `Duration::from_secs_f64(f64::INFINITY)` panics. Before `Client::backoff`
+    // clamped the value, that panic unwound straight out of `call_raw`, so a
+    // single malformed header from the server killed the caller's thread.
+    //
+    // The call runs on a spawned thread because the *correct* behaviour here is
+    // to sleep for the clamp (`MAX_RETRY_AFTER_SECS`, 300s) and then retry:
+    // finishing quickly is the failure signal, not the success one. A panic
+    // ends the thread almost immediately, which is exactly what this detects.
+    // The parked thread is detached and dies with the test process.
+    let server = MockServer::start(vec![
+        MockResponse::json(429, r#"{"error":"slow down"}"#).with_header("Retry-After", "1e400"),
+        MockResponse::json(200, "{}"),
+    ]);
+    let base_url = server.base_url().to_string();
+
+    let handle = std::thread::spawn(move || {
+        let c = Client::builder()
+            .base_url(base_url)
+            .max_attempts(2)
+            .build()
+            .unwrap();
+        let _ = c.call_raw(Method::Get, "/a", &[], None, &[]);
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_millis(500);
+    while std::time::Instant::now() < deadline {
+        assert!(
+            !handle.is_finished(),
+            "the call ended early: it panicked on an infinite Retry-After \
+             instead of clamping it to MAX_RETRY_AFTER_SECS"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    assert_eq!(
+        server.request_count(),
+        1,
+        "the 429 must have been served and its Retry-After honoured"
+    );
+}
+
+#[test]
+fn a_response_does_not_inherit_rate_limit_fields_from_an_earlier_one() {
+    // `Response::rate_limit()` is parsed from that response's own headers.
+    // The client-global view stays sticky, so the two must disagree here: if
+    // the response were handed the merged state instead, `limit` would still
+    // read 55000 on the second call even though that response never sent it.
+    let server = MockServer::start(vec![
+        MockResponse::json(200, "{}")
+            .with_header("X-RateLimit-Limit", "55000")
+            .with_header("X-RateLimit-Remaining", "54999"),
+        MockResponse::json(200, "{}").with_header("X-RateLimit-Remaining", "54998"),
+    ]);
+    let c = client(&server, 5);
+
+    let first = c.call_raw(Method::Get, "/a", &[], None, &[]).unwrap();
+    assert_eq!(first.rate_limit().limit, Some(55000));
+    assert_eq!(first.rate_limit().remaining, Some(54999));
+
+    let second = c.call_raw(Method::Get, "/b", &[], None, &[]).unwrap();
+    assert_eq!(
+        second.rate_limit().limit,
+        None,
+        "this response omitted X-RateLimit-Limit, so it must not report one"
+    );
+    assert_eq!(second.rate_limit().remaining, Some(54998));
+
+    // The client-wide view keeps the Go port's stickiness.
+    assert_eq!(c.rate_limit().limit, Some(55000));
+    assert_eq!(c.rate_limit().remaining, Some(54998));
+}
+
+#[test]
+fn backoff_still_honours_a_sticky_retry_after_on_a_later_attempt() {
+    // Making `Response`/`ApiError` telemetry response-specific must not change
+    // the retry loop: a 429's Retry-After keeps applying to a subsequent
+    // failure that carries no such header, exactly as goensemblrest does.
+    // With backoff decoupled from stickiness the second sleep would be the
+    // computed 20ms rather than the honoured 150ms.
+    let server = MockServer::start(vec![
+        MockResponse::json(429, r#"{"error":"slow down"}"#).with_header("Retry-After", "0.15"),
+        MockResponse::json(503, r#"{"error":"down"}"#),
+        MockResponse::json(200, "{}"),
+    ]);
+    let c = client(&server, 3);
+
+    let start = std::time::Instant::now();
+    c.call_raw(Method::Get, "/a", &[], None, &[]).unwrap();
+
+    assert_eq!(server.request_count(), 3);
+    assert!(
+        start.elapsed() >= Duration::from_millis(290),
+        "both sleeps must honour the sticky Retry-After, elapsed {:?}",
+        start.elapsed()
+    );
 }

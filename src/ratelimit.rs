@@ -27,6 +27,26 @@ pub struct RateLimitInfo {
     pub retry_after: Option<f64>,
 }
 
+/// Parses rate-limit telemetry from one response's headers, without merging.
+///
+/// This reports only what *this* response sent: a header that is absent or
+/// unparseable stays `None` rather than inheriting an earlier response's value.
+/// [`RateLimiter::merge`] is what folds these into the sticky client-global view.
+pub(crate) fn parse_headers(headers: &HeaderMap) -> RateLimitInfo {
+    let get_i64 =
+        |name: &str| -> Option<i64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
+    let get_f64 =
+        |name: &str| -> Option<f64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
+
+    RateLimitInfo {
+        reset: get_i64("X-RateLimit-Reset"),
+        limit: get_i64("X-RateLimit-Limit"),
+        remaining: get_i64("X-RateLimit-Remaining"),
+        period: get_i64("X-RateLimit-Period"),
+        retry_after: get_f64("Retry-After"),
+    }
+}
+
 #[derive(Debug, Default)]
 struct State {
     stamps: VecDeque<Instant>,
@@ -85,30 +105,28 @@ impl RateLimiter {
         }
     }
 
-    /// Merges rate-limit telemetry from response headers and returns the current state.
+    /// Merges `fresh` into the client-global telemetry and returns the result.
     ///
-    /// Headers that are absent or unparseable leave the previous value untouched,
-    /// so telemetry persists across responses that omit it.
-    pub(crate) fn update_from_headers(&self, headers: &HeaderMap) -> RateLimitInfo {
-        let get_i64 =
-            |name: &str| -> Option<i64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
-        let get_f64 =
-            |name: &str| -> Option<f64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
-
+    /// Fields that are `None` in `fresh` leave the previous value untouched, so
+    /// telemetry persists across responses that omit it. That stickiness is a
+    /// faithful port of `goensemblrest/ratelimit.go` and is what
+    /// [`crate::Client::rate_limit`] exposes; use [`parse_headers`] directly
+    /// when you want only what one response sent.
+    pub(crate) fn merge(&self, fresh: &RateLimitInfo) -> RateLimitInfo {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(v) = get_i64("X-RateLimit-Reset") {
+        if let Some(v) = fresh.reset {
             st.info.reset = Some(v);
         }
-        if let Some(v) = get_i64("X-RateLimit-Limit") {
+        if let Some(v) = fresh.limit {
             st.info.limit = Some(v);
         }
-        if let Some(v) = get_i64("X-RateLimit-Remaining") {
+        if let Some(v) = fresh.remaining {
             st.info.remaining = Some(v);
         }
-        if let Some(v) = get_i64("X-RateLimit-Period") {
+        if let Some(v) = fresh.period {
             st.info.period = Some(v);
         }
-        if let Some(v) = get_f64("Retry-After") {
+        if let Some(v) = fresh.retry_after {
             st.info.retry_after = Some(v);
         }
         st.info.clone()
@@ -167,7 +185,7 @@ mod tests {
         h.insert("X-RateLimit-Period", HeaderValue::from_static("3600"));
         h.insert("Retry-After", HeaderValue::from_static("2.5"));
 
-        let info = rl.update_from_headers(&h);
+        let info = rl.merge(&parse_headers(&h));
         assert_eq!(info.reset, Some(42));
         assert_eq!(info.limit, Some(55000));
         assert_eq!(info.remaining, Some(54999));
@@ -184,7 +202,7 @@ mod tests {
             "X-RateLimit-Reset",
             HeaderValue::from_static("not-a-number"),
         );
-        let info = rl.update_from_headers(&h);
+        let info = rl.merge(&parse_headers(&h));
         assert_eq!(info, RateLimitInfo::default());
     }
 
@@ -193,9 +211,9 @@ mod tests {
         let rl = RateLimiter::new(15, Duration::from_secs(1));
         let mut h = HeaderMap::new();
         h.insert("X-RateLimit-Limit", HeaderValue::from_static("100"));
-        rl.update_from_headers(&h);
+        rl.merge(&parse_headers(&h));
 
-        let info = rl.update_from_headers(&HeaderMap::new());
+        let info = rl.merge(&parse_headers(&HeaderMap::new()));
         assert_eq!(
             info.limit,
             Some(100),

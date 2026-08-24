@@ -39,6 +39,32 @@
 //! `json` accepts any [`serde::Deserialize`] type, so endpoints without a model in
 //! [`types`] still work via [`serde_json::Value`].
 //!
+//! # GA4GH query structs
+//!
+//! The GA4GH search endpoints take a body of optional filters, most of them the
+//! same type as their neighbours. Each such endpoint therefore takes a named
+//! `Ga4gh*Query` struct rather than a row of positional `Option`s, so a
+//! transposed pair cannot compile into a silently wrong query. Fields left
+//! `None` are omitted from the request body.
+//!
+//! ```no_run
+//! use ensemblrest::{Client, Ga4ghReferencesQuery};
+//!
+//! # fn main() -> ensemblrest::Result<()> {
+//! let client = Client::new()?;
+//! let references = client.search_ga4gh_references(
+//!     &Ga4ghReferencesQuery {
+//!         reference_set_id: Some("GRCh38"),
+//!         accession: Some("GCA_000001405"),
+//!         page_size: Some(10),
+//!         ..Default::default()
+//!     },
+//!     &[],
+//! )?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Configuration
 //!
 //! ```no_run
@@ -110,9 +136,25 @@ pub const DEFAULT_WALL_TIME: Duration = Duration::from_secs(1);
 /// `ureq` defaults to 10 MiB, which several Ensembl endpoints exceed.
 pub const DEFAULT_MAX_RESPONSE_BYTES: u64 = 100 * 1024 * 1024;
 
+/// The crate's minimum supported Rust version, from `rust-version` in
+/// `Cargo.toml`.
+///
+/// `None` when built by a toolchain that does not set
+/// `CARGO_PKG_RUST_VERSION`, or when `Cargo.toml` declares no `rust-version`.
+pub const MSRV: Option<&str> = option_env!("CARGO_PKG_RUST_VERSION");
+
 /// Returns the default `User-Agent` header value.
+///
+/// The Rust version is taken from [`MSRV`] rather than hardcoded, so bumping
+/// `rust-version` in `Cargo.toml` cannot leave a stale number on the wire. If
+/// the toolchain does not supply one, the version is left out altogether
+/// rather than guessed.
 pub fn default_user_agent() -> String {
-    format!("ensemblrest/{VERSION} (Rust 1.98; +https://github.com/gawbul/ensemblrest-rs)")
+    const HOME: &str = "+https://github.com/gawbul/ensemblrest-rs";
+    match MSRV {
+        Some(rust) if !rust.is_empty() => format!("ensemblrest/{VERSION} (Rust {rust}; {HOME})"),
+        _ => format!("ensemblrest/{VERSION} ({HOME})"),
+    }
 }
 
 /// Re-export of the `serde_json` version this crate was built against.
@@ -152,6 +194,13 @@ pub mod types;
 mod archive;
 mod comparative;
 mod ga4gh;
+
+pub use ga4gh::{
+    Ga4ghBeaconQuery, Ga4ghCallsetQuery, Ga4ghFeaturesQuery, Ga4ghFeaturesetsQuery,
+    Ga4ghReferencesQuery, Ga4ghReferencesetsQuery, Ga4ghVariantAnnotationsQuery,
+    Ga4ghVariantAnnotationsetsQuery, Ga4ghVariantsQuery, Ga4ghVariantsetsQuery,
+};
+
 mod info;
 mod ld;
 mod lookup;
@@ -186,5 +235,9 @@ mod tests {
         assert!(ua.starts_with("ensemblrest/"), "got {ua}");
         assert!(ua.contains(VERSION), "got {ua}");
         assert!(ua.contains("github.com/gawbul/ensemblrest-rs"), "got {ua}");
+        // The Rust version must track Cargo.toml, never a hardcoded literal.
+        if let Some(rust) = MSRV {
+            assert!(ua.contains(&format!("Rust {rust}")), "got {ua}");
+        }
     }
 }

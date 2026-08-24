@@ -19,6 +19,19 @@ const TRANSIENT_BODY_MARKERS: [&str; 3] = [
     "timeout",
 ];
 
+/// Upper bound, in seconds, on a server-supplied `Retry-After` this client
+/// will honour.
+///
+/// This does two jobs. **Safety:** `RateLimiter::update_from_headers` parses
+/// `Retry-After` with `f64::from_str`, which happily accepts `inf`, values
+/// that overflow to infinity (`1e400`) and values far beyond `u64::MAX` --
+/// every one of which makes `Duration::from_secs_f64` *panic*. A garbled or
+/// hostile header must not abort the caller's thread, so the value is clamped
+/// before it is turned into a `Duration`. **Liveness:** the retry sleep is not
+/// cancellable (see the design spec's divergence 3), so this also bounds how
+/// long a single call can park a caller's thread on one server-dictated wait.
+const MAX_RETRY_AFTER_SECS: f64 = 300.0;
+
 /// Returns `true` if a failed response is worth retrying.
 ///
 /// HTTP 429 is handled separately by the caller because it carries `Retry-After`.
@@ -109,20 +122,30 @@ impl Client {
 
     /// Computes how long to wait before the next attempt.
     ///
-    /// `api.rate_limit.retry_after` is sticky by design: `RateLimiter::update_from_headers`
-    /// only overwrites fields a response actually sent, so once a 429 supplies
-    /// `Retry-After`, a later attempt's error (e.g. a 503 with no such header)
-    /// still carries it and this still sleeps for it. That looks like a bug but
+    /// `retry_after` is the *merged*, client-global `Retry-After`, not the one
+    /// this attempt's response happened to send, and that is deliberate: it is
+    /// sticky, so once a 429 supplies `Retry-After`, a later attempt that fails
+    /// without one (e.g. a 503) still sleeps for it. That looks like a bug but
     /// isn't one — `goensemblrest/ratelimit.go` behaves identically, so this is a
-    /// faithful port, not a divergence to "fix".
-    fn backoff(&self, attempt: u32, last: Option<&Error>) -> Duration {
-        if let Some(Error::Api(api)) = last
-            && let Some(retry_after) = api.rate_limit.retry_after
+    /// faithful port, not a divergence to "fix". The per-response value that
+    /// [`Response::rate_limit`] and [`ApiError::rate_limit`] expose is a
+    /// different, non-sticky view; see [`crate::ratelimit::parse_headers`].
+    fn backoff(&self, attempt: u32, retry_after: Option<f64>) -> Duration {
+        if let Some(retry_after) = retry_after
             && retry_after > 0.0
         {
-            return Duration::from_secs_f64(retry_after);
+            // `retry_after > 0.0` already excludes NaN and negatives; the
+            // clamp excludes infinity and anything that would overflow a
+            // `Duration`. See `MAX_RETRY_AFTER_SECS`.
+            return Duration::from_secs_f64(retry_after.min(MAX_RETRY_AFTER_SECS));
         }
-        (self.inner.wall_time * 2 * attempt).max(Duration::from_millis(10))
+        // Saturating: `wall_time` is caller-configured and an absurd window
+        // (say `Duration::MAX / 2`) would otherwise overflow-panic here.
+        self.inner
+            .wall_time
+            .saturating_mul(2)
+            .saturating_mul(attempt)
+            .max(Duration::from_millis(10))
     }
 
     /// Executes a request with rate limiting, retries and backoff.
@@ -152,10 +175,19 @@ impl Client {
         for attempt in 1..=self.inner.max_attempts {
             self.inner.limiter.wait();
 
-            match self.send_once(method, &url, cfg, body_bytes.as_deref()) {
+            // The sticky, client-global `Retry-After` that drives backoff. It
+            // is threaded separately from `last` because the `RateLimitInfo`
+            // carried on the error is response-specific and so *not* sticky.
+            let sticky_retry_after = match self.send_once(method, &url, cfg, body_bytes.as_deref())
+            {
                 Ok(mut raw) => {
                     let status = raw.status().as_u16();
-                    let rate_limit = self.inner.limiter.update_from_headers(raw.headers());
+                    // Two views of the same headers. `rate_limit` describes only
+                    // *this* response and is what the caller is handed; `merged`
+                    // is the sticky client-global state behind
+                    // `Client::rate_limit()` and backoff.
+                    let rate_limit = crate::ratelimit::parse_headers(raw.headers());
+                    let merged = self.inner.limiter.merge(&rate_limit);
                     let content_type = raw
                         .headers()
                         .get("Content-Type")
@@ -185,12 +217,19 @@ impl Client {
                         return Err(Error::Api(api));
                     }
                     last = Some(Error::Api(api));
+                    merged.retry_after
                 }
-                Err(e) => last = Some(Error::Transport(Box::new(e))),
-            }
+                Err(e) => {
+                    last = Some(Error::Transport(Box::new(e)));
+                    // A transport failure produced no headers at all; Go falls
+                    // back to computed backoff here rather than reusing an
+                    // earlier response's `Retry-After`.
+                    None
+                }
+            };
 
             if attempt < self.inner.max_attempts {
-                std::thread::sleep(self.backoff(attempt, last.as_ref()));
+                std::thread::sleep(self.backoff(attempt, sticky_retry_after));
             }
         }
 
@@ -233,6 +272,38 @@ mod tests {
         ));
         assert!(is_transient(400, "Request timeout while processing"));
         assert!(!is_transient(400, "ID 'NOPE' not found"));
+    }
+
+    #[test]
+    fn backoff_clamps_a_garbled_retry_after_instead_of_panicking() {
+        // Every one of these makes `Duration::from_secs_f64` panic outright,
+        // and all three are values `f64::from_str` accepts from a `Retry-After`
+        // header: `"inf"`, `"1e400"` (overflows to infinity) and a finite value
+        // larger than `u64::MAX` seconds.
+        let c = Client::new().unwrap();
+        for raw in [
+            f64::INFINITY,
+            "1e400".parse::<f64>().unwrap(),
+            f64::MAX,
+            1e30,
+        ] {
+            assert_eq!(
+                c.backoff(1, Some(raw)),
+                Duration::from_secs_f64(MAX_RETRY_AFTER_SECS),
+                "Retry-After {raw} must clamp, not panic or sleep for ever"
+            );
+        }
+    }
+
+    #[test]
+    fn backoff_honours_a_sane_retry_after_unchanged() {
+        let c = Client::new().unwrap();
+        assert_eq!(c.backoff(1, Some(2.5)), Duration::from_secs_f64(2.5));
+        assert_eq!(
+            c.backoff(1, None),
+            Duration::from_secs(2),
+            "with no Retry-After, backoff is attempt * wall_time * 2"
+        );
     }
 
     #[test]

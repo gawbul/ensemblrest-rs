@@ -6,8 +6,13 @@
 mod common;
 
 use common::mock::MockServer;
-use ensemblrest::Client;
+use ensemblrest::endpoints::{ENDPOINTS, Method, endpoint};
 use ensemblrest::serde_json::json;
+use ensemblrest::{
+    Client, Ga4ghBeaconQuery, Ga4ghCallsetQuery, Ga4ghFeaturesQuery, Ga4ghFeaturesetsQuery,
+    Ga4ghReferencesQuery, Ga4ghReferencesetsQuery, Ga4ghVariantAnnotationsQuery,
+    Ga4ghVariantAnnotationsetsQuery, Ga4ghVariantsQuery, Ga4ghVariantsetsQuery,
+};
 
 /// A client pointed at a mock server returning `{}` once.
 fn client(server: &MockServer) -> Client {
@@ -926,13 +931,15 @@ fn post_ga4gh_beacon_query() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .post_ga4gh_beacon_query(
-            Some("A"),
-            Some("GRCh38"),
-            Some(100_176_904),
-            Some("C"),
-            Some("1"),
-            Some(100_176_903),
-            None,
+            &Ga4ghBeaconQuery {
+                alternate_bases: Some("A"),
+                assembly_id: Some("GRCh38"),
+                end: Some(100_176_904),
+                reference_bases: Some("C"),
+                reference_name: Some("1"),
+                start: Some(100_176_903),
+                variant_type: None,
+            },
             &[],
         )
         .unwrap();
@@ -966,11 +973,13 @@ fn search_ga4gh_features() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .search_ga4gh_features(
-            Some(1_000_100),
-            Some("1"),
-            Some(1_000_000),
-            Some("Ensembl"),
-            None,
+            &Ga4ghFeaturesQuery {
+                end: Some(1_000_100),
+                reference_name: Some("1"),
+                start: Some(1_000_000),
+                feature_set_id: Some("Ensembl"),
+                ..Default::default()
+            },
             &[],
         )
         .unwrap();
@@ -989,7 +998,15 @@ fn search_ga4gh_features() {
 fn search_ga4gh_callset() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_callset(Some("1"), Some("NA12878"), None, Some(10), &[])
+        .search_ga4gh_callset(
+            &Ga4ghCallsetQuery {
+                variant_set_id: Some("1"),
+                name: Some("NA12878"),
+                page_size: Some(10),
+                ..Default::default()
+            },
+            &[],
+        )
         .unwrap();
 
     let req = server.only_request();
@@ -1048,7 +1065,14 @@ fn get_ga4gh_datasets_by_id() {
 fn search_ga4gh_featuresets() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_featuresets(Some("Ensembl"), None, Some(10), &[])
+        .search_ga4gh_featuresets(
+            &Ga4ghFeaturesetsQuery {
+                dataset_id: Some("Ensembl"),
+                page_size: Some(10),
+                ..Default::default()
+            },
+            &[],
+        )
         .unwrap();
 
     let req = server.only_request();
@@ -1093,14 +1117,15 @@ fn search_ga4gh_variant_annotations() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .search_ga4gh_variant_annotations(
-            Some("Ensembl"),
-            Some(&effects),
-            Some(1_000_100),
-            Some(10),
-            None,
-            None,
-            Some("1"),
-            Some(1_000_000),
+            &Ga4ghVariantAnnotationsQuery {
+                variant_annotation_set_id: Some("Ensembl"),
+                effects: Some(&effects),
+                end: Some(1_000_100),
+                page_size: Some(10),
+                reference_name: Some("1"),
+                start: Some(1_000_000),
+                ..Default::default()
+            },
             &[],
         )
         .unwrap();
@@ -1124,13 +1149,15 @@ fn search_ga4gh_variants() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .search_ga4gh_variants(
-            Some("1"),
-            Some(&["NA12878"]),
-            Some("1"),
-            Some(1_000_000),
-            Some(1_000_100),
-            None,
-            Some(10),
+            &Ga4ghVariantsQuery {
+                variant_set_id: Some("1"),
+                call_set_ids: Some(&["NA12878"]),
+                reference_name: Some("1"),
+                start: Some(1_000_000),
+                end: Some(1_000_100),
+                page_size: Some(10),
+                ..Default::default()
+            },
             &[],
         )
         .unwrap();
@@ -1151,7 +1178,14 @@ fn search_ga4gh_variants() {
 fn search_ga4gh_variantsets() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_variantsets(Some("1"), None, Some(10), &[])
+        .search_ga4gh_variantsets(
+            &Ga4ghVariantsetsQuery {
+                dataset_id: Some("1"),
+                page_size: Some(10),
+                ..Default::default()
+            },
+            &[],
+        )
         .unwrap();
 
     let req = server.only_request();
@@ -1179,11 +1213,12 @@ fn search_ga4gh_references() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
         .search_ga4gh_references(
-            Some("GRCh38"),
-            None,
-            Some("GCA_000001405"),
-            None,
-            Some(10),
+            &Ga4ghReferencesQuery {
+                reference_set_id: Some("GRCh38"),
+                accession: Some("GCA_000001405"),
+                page_size: Some(10),
+                ..Default::default()
+            },
             &[],
         )
         .unwrap();
@@ -1214,7 +1249,14 @@ fn get_ga4gh_references_by_id() {
 fn search_ga4gh_referencesets() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_referencesets(Some("GCA_000001405"), None, Some(10), &[])
+        .search_ga4gh_referencesets(
+            &Ga4ghReferencesetsQuery {
+                accession: Some("GCA_000001405"),
+                page_size: Some(10),
+                ..Default::default()
+            },
+            &[],
+        )
         .unwrap();
 
     let req = server.only_request();
@@ -1241,7 +1283,14 @@ fn get_ga4gh_referencesets_by_id() {
 fn search_ga4gh_variant_annotationsets() {
     let server = MockServer::with_json(200, "{}");
     client(&server)
-        .search_ga4gh_variant_annotationsets(Some("1"), None, Some(10), &[])
+        .search_ga4gh_variant_annotationsets(
+            &Ga4ghVariantAnnotationsetsQuery {
+                variant_set_id: Some("1"),
+                page_size: Some(10),
+                ..Default::default()
+            },
+            &[],
+        )
         .unwrap();
 
     let req = server.only_request();
@@ -1485,4 +1534,308 @@ fn get_phenotype_by_term() {
         req.path(),
         "/phenotype/term/homo_sapiens/coronary%20heart%20disease"
     );
+}
+
+// ---- POST body / `post_parameters` parity ----
+
+/// Drives one POST endpoint against a mock and returns the sorted top-level
+/// keys of the JSON body it actually sent.
+fn post_body_keys(name: &str, drive: impl FnOnce(&Client)) -> Vec<String> {
+    let server = MockServer::with_json(200, "{}");
+    drive(&client(&server));
+    let req = server.only_request();
+    assert_eq!(req.method, "POST", "{name} must be sent as a POST");
+    let body = req.json();
+    let obj = body
+        .as_object()
+        .unwrap_or_else(|| panic!("{name} must send a JSON object body, got {body}"));
+    let mut keys: Vec<String> = obj.keys().cloned().collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn every_post_method_sends_exactly_its_declared_post_parameters() {
+    // `EndpointSpec::post_parameters` is documentation that nothing else reads,
+    // so without this it can drift from the bodies the typed methods build --
+    // a rename on one side and not the other would go unnoticed. Every field
+    // is populated here precisely so the key sets have to match exactly:
+    // the GA4GH bodies omit `None` fields, so a partly-filled call would
+    // under-report and hide a missing key.
+    let effects = json!([{"id": "SO:0001627", "term": "intron_variant"}]);
+    let page_token = json!(1);
+
+    #[allow(clippy::type_complexity)]
+    let cases: Vec<(&str, Box<dyn Fn(&Client) + '_>)> = vec![
+        (
+            "getArchiveByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_archive_by_multiple_ids(&["ENSG01"], &[]).unwrap();
+            }),
+        ),
+        (
+            "getLookupByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_lookup_by_multiple_ids(&["ENSG01"], &[]).unwrap();
+            }),
+        ),
+        (
+            "getLookupByMultipleSymbols",
+            Box::new(|c: &Client| {
+                c.get_lookup_by_multiple_symbols("homo_sapiens", &["BRAF"], &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "getSequenceByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_sequence_by_multiple_ids(&["ENSG01"], &[]).unwrap();
+            }),
+        ),
+        (
+            "getSequenceByMultipleRegions",
+            Box::new(|c: &Client| {
+                c.get_sequence_by_multiple_regions("homo_sapiens", &["X:1..100:1"], &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "getVariantConsequencesByMultipleHGVSNotations",
+            Box::new(|c: &Client| {
+                c.get_variant_consequences_by_multiple_hgvs_notations(
+                    "homo_sapiens",
+                    &["AGT:c.803T>C"],
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "getVariantConsequencesByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_variant_consequences_by_multiple_ids("homo_sapiens", &["rs56116432"], &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "getVariantConsequencesByMultipleRegions",
+            Box::new(|c: &Client| {
+                c.get_variant_consequences_by_multiple_regions(
+                    "homo_sapiens",
+                    &["21 26960070 rs116645811 G A . . ."],
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "getVariationRecoderByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_variation_recoder_by_multiple_ids("homo_sapiens", &["rs56116432"], &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "getVariationByMultipleIds",
+            Box::new(|c: &Client| {
+                c.get_variation_by_multiple_ids("homo_sapiens", &["rs56116432"], &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "postGA4GHBeaconQuery",
+            Box::new(|c: &Client| {
+                c.post_ga4gh_beacon_query(
+                    &Ga4ghBeaconQuery {
+                        alternate_bases: Some("A"),
+                        assembly_id: Some("GRCh38"),
+                        end: Some(100_176_904),
+                        reference_bases: Some("C"),
+                        reference_name: Some("1"),
+                        start: Some(100_176_903),
+                        variant_type: Some("SNP"),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHFeatures",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_features(
+                    &Ga4ghFeaturesQuery {
+                        end: Some(100),
+                        reference_name: Some("1"),
+                        start: Some(1),
+                        feature_set_id: Some("Ensembl"),
+                        parent_id: Some("ENSG01"),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHCallset",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_callset(
+                    &Ga4ghCallsetQuery {
+                        variant_set_id: Some("1"),
+                        name: Some("NA12878"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHDatasets",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_datasets(Some(&page_token), Some(10), &[])
+                    .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHFeaturesets",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_featuresets(
+                    &Ga4ghFeaturesetsQuery {
+                        dataset_id: Some("Ensembl"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHVariantAnnotations",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_variant_annotations(
+                    &Ga4ghVariantAnnotationsQuery {
+                        variant_annotation_set_id: Some("Ensembl"),
+                        effects: Some(&effects),
+                        end: Some(100),
+                        page_size: Some(10),
+                        page_token: Some(&page_token),
+                        reference_id: Some("GRCh38:1"),
+                        reference_name: Some("1"),
+                        start: Some(1),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHVariants",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_variants(
+                    &Ga4ghVariantsQuery {
+                        variant_set_id: Some("1"),
+                        call_set_ids: Some(&["NA12878"]),
+                        reference_name: Some("1"),
+                        start: Some(1),
+                        end: Some(100),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHVariantsets",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_variantsets(
+                    &Ga4ghVariantsetsQuery {
+                        dataset_id: Some("1"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHReferences",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_references(
+                    &Ga4ghReferencesQuery {
+                        reference_set_id: Some("GRCh38"),
+                        md5checksum: Some("1b22b98cdeb4a9304cb5d48026a85128"),
+                        accession: Some("GCA_000001405"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHReferencesets",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_referencesets(
+                    &Ga4ghReferencesetsQuery {
+                        accession: Some("GCA_000001405"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "searchGA4GHVariantAnnotationsets",
+            Box::new(|c: &Client| {
+                c.search_ga4gh_variant_annotationsets(
+                    &Ga4ghVariantAnnotationsetsQuery {
+                        variant_set_id: Some("1"),
+                        page_token: Some(&page_token),
+                        page_size: Some(10),
+                    },
+                    &[],
+                )
+                .unwrap();
+            }),
+        ),
+    ];
+
+    // Nothing may be left out: the covered names must be exactly the table's
+    // POST endpoints, so adding a POST endpoint without a case fails here.
+    let mut covered: Vec<&str> = cases.iter().map(|(name, _)| *name).collect();
+    covered.sort_unstable();
+    let mut declared_posts: Vec<&str> = ENDPOINTS
+        .iter()
+        .filter(|e| e.method == Method::Post)
+        .map(|e| e.name)
+        .collect();
+    declared_posts.sort_unstable();
+    assert_eq!(
+        covered, declared_posts,
+        "every POST endpoint must be driven"
+    );
+
+    for (name, drive) in cases {
+        let spec = endpoint(name).unwrap_or_else(|| panic!("{name} is not in the table"));
+        let mut declared: Vec<String> = spec.post_parameters.iter().map(|s| (*s).into()).collect();
+        assert!(
+            !declared.is_empty(),
+            "{name} is a POST but declares no post_parameters"
+        );
+        declared.sort();
+        assert_eq!(
+            post_body_keys(name, drive),
+            declared,
+            "{name}: request body keys must match its declared post_parameters"
+        );
+    }
 }
